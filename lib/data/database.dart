@@ -5,7 +5,7 @@
 // Three user-facing concepts:
 //   Day      — all records for a calendar date, auto-grouped from records
 //   Trip     — manually marked period within a day (TRIP_START / TRIP_END)
-//   Record   — individual 1Hz log entry
+//   Record   — 1Hz snapshot decoded from raw CAN bus frames
 //
 // One internal concept:
 //   SyncSession — tracks which ESP32 sessions have been downloaded
@@ -44,6 +44,7 @@ class Days extends Table {
   RealColumn get peakBmsTempC      => real()();
   RealColumn get peakCurrentA      => real()();
   IntColumn get peakRpm            => integer()();
+  IntColumn get peakSocPct         => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {date};
@@ -64,26 +65,30 @@ class Trips extends Table {
   RealColumn get peakBmsTempC      => real()();
   RealColumn get peakCurrentA      => real()();
   TextColumn get name         => text().nullable()();  // user-assigned job name
+  IntColumn get socStart      => integer().nullable()();  // SoC% at TRIP_START
+  IntColumn get socEnd        => integer().nullable()();  // SoC% at TRIP_END
 }
 
-// Individual 1Hz log records — the raw data
+// Individual 1Hz log records — snapshots decoded from raw CAN frames
 class LogRecords extends Table {
   IntColumn get id              => integer().autoIncrement()();
   TextColumn get dayDate        => text().references(Days, #date)();
   IntColumn get unixTime        => integer()();   // reconstructed unix timestamp
-  IntColumn get tickMs          => integer()();   // raw tick from ESP32
+  IntColumn get tickMs          => integer()();   // tick_ms of last CAN frame in this second
 
-  // ZombieVerter / Leaf inverter
+  // Nissan Leaf inverter (0x1DA, 0x55A)
   IntColumn get motorRpm        => integer()();
   RealColumn get motorTempC     => real()();
   RealColumn get inverterTempC  => real()();
 
-  // ISA Shunt
+  // ISA Shunt (0x521, 0x522, 0x526, 0x527)
   RealColumn get packCurrentA   => real()();      // negative = regen
   RealColumn get packVoltageV   => real()();
+  RealColumn get packKw         => real().withDefault(const Constant(0.0))();
   RealColumn get ahUsed         => real()();
 
-  // M3 BMS (0x35C)
+  // M3 BMS (0x355, 0x356, 0x373)
+  IntColumn get socPct           => integer().withDefault(const Constant(0))();
   RealColumn get bmsTempMaxC    => real()();
   RealColumn get bmsTempMinC    => real()();
   IntColumn get cellVoltageMaxMv => integer()();
@@ -101,13 +106,22 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await customStatement('ALTER TABLE trips ADD COLUMN name TEXT');
+      }
+      if (from < 3) {
+        await customStatement('ALTER TABLE log_records ADD COLUMN soc_pct INTEGER NOT NULL DEFAULT 0');
+        await customStatement('ALTER TABLE days ADD COLUMN peak_soc_pct INTEGER NOT NULL DEFAULT 0');
+        await customStatement('ALTER TABLE trips ADD COLUMN soc_start INTEGER');
+        await customStatement('ALTER TABLE trips ADD COLUMN soc_end INTEGER');
+      }
+      if (from < 4) {
+        await customStatement('ALTER TABLE log_records ADD COLUMN pack_kw REAL NOT NULL DEFAULT 0.0');
       }
     },
   );
@@ -156,6 +170,12 @@ class AppDatabase extends _$AppDatabase {
   Future<void> updateTripName(int tripId, String? name) =>
       (update(trips)..where((t) => t.id.equals(tripId)))
           .write(TripsCompanion(name: Value(name)));
+
+  Future<void> deleteTrip(int tripId) => transaction(() async {
+    await (update(logRecords)..where((r) => r.tripId.equals(tripId)))
+        .write(const LogRecordsCompanion(tripId: Value(null)));
+    await (delete(trips)..where((t) => t.id.equals(tripId))).go();
+  });
 
   Stream<List<Trip>> watchTripsForDay(String date) =>
       (select(trips)

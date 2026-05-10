@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/database.dart';
+import '../../data/demo_seeder.dart';
 import 'trip_detail_screen.dart';
 
 class SessionsScreen extends StatelessWidget {
@@ -39,12 +40,21 @@ class SessionsScreen extends StatelessWidget {
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends StatefulWidget {
   const _EmptyState();
+
+  @override
+  State<_EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<_EmptyState> {
+  bool _seeding = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final db    = context.read<AppDatabase>();
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -52,8 +62,7 @@ class _EmptyState extends StatelessWidget {
           Icon(Icons.cloud_download_outlined,
               size: 64, color: theme.colorScheme.outline),
           const SizedBox(height: 16),
-          Text('No sessions yet',
-              style: theme.textTheme.titleMedium),
+          Text('No sessions yet', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
             'Connect to your tractor to sync data',
@@ -61,6 +70,20 @@ class _EmptyState extends StatelessWidget {
               color: theme.colorScheme.outline,
             ),
           ),
+          const SizedBox(height: 24),
+          _seeding
+              ? const SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : TextButton(
+                  onPressed: () async {
+                    setState(() => _seeding = true);
+                    await DemoSeeder.seed(db);
+                    if (mounted) setState(() => _seeding = false);
+                  },
+                  child: const Text('Load example data'),
+                ),
         ],
       ),
     );
@@ -248,6 +271,12 @@ class _TripTile extends StatelessWidget {
             tooltip: 'Rename job',
             onPressed: () => _showRenameDialog(context, db),
           ),
+          IconButton(
+            icon: Icon(Icons.delete_outline,
+                size: 18, color: Theme.of(context).colorScheme.error),
+            tooltip: 'Delete job',
+            onPressed: () => _showDeleteDialog(context, db),
+          ),
           const Icon(Icons.chevron_right),
         ],
       ),
@@ -292,6 +321,33 @@ class _TripTile extends StatelessWidget {
     );
     if (saved == null) return;
     await db.updateTripName(trip.id, saved.isEmpty ? null : saved);
+  }
+
+  Future<void> _showDeleteDialog(BuildContext context, AppDatabase db) async {
+    final label = trip.name ?? 'Job ${trip.tripNumber}';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete job?'),
+        content: Text(
+          '"$label" will be permanently removed and cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await db.deleteTrip(trip.id);
   }
 
   String _formatTime(int unixSeconds) {

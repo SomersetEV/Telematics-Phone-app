@@ -52,7 +52,7 @@ class _StatusPanel extends StatelessWidget {
             height: 120,
             decoration: BoxDecoration(
               shape:  BoxShape.circle,
-              color:  _statusColour(ble.connectionState).withOpacity(0.15),
+              color:  _statusColour(ble.connectionState).withValues(alpha: 0.15),
               border: Border.all(
                 color: _statusColour(ble.connectionState),
                 width: 2,

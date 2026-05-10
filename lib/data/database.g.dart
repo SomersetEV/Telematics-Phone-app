@@ -335,6 +335,14 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
   late final GeneratedColumn<int> peakRpm = GeneratedColumn<int>(
       'peak_rpm', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _peakSocPctMeta =
+      const VerificationMeta('peakSocPct');
+  @override
+  late final GeneratedColumn<int> peakSocPct = GeneratedColumn<int>(
+      'peak_soc_pct', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   @override
   List<GeneratedColumn> get $columns => [
         date,
@@ -344,7 +352,8 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
         peakInverterTempC,
         peakBmsTempC,
         peakCurrentA,
-        peakRpm
+        peakRpm,
+        peakSocPct
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -414,6 +423,12 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
     } else if (isInserting) {
       context.missing(_peakRpmMeta);
     }
+    if (data.containsKey('peak_soc_pct')) {
+      context.handle(
+          _peakSocPctMeta,
+          peakSocPct.isAcceptableOrUnknown(
+              data['peak_soc_pct']!, _peakSocPctMeta));
+    }
     return context;
   }
 
@@ -439,6 +454,8 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
           .read(DriftSqlType.double, data['${effectivePrefix}peak_current_a'])!,
       peakRpm: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}peak_rpm'])!,
+      peakSocPct: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}peak_soc_pct'])!,
     );
   }
 
@@ -457,6 +474,7 @@ class Day extends DataClass implements Insertable<Day> {
   final double peakBmsTempC;
   final double peakCurrentA;
   final int peakRpm;
+  final int peakSocPct;
   const Day(
       {required this.date,
       required this.totalDurationSecs,
@@ -465,7 +483,8 @@ class Day extends DataClass implements Insertable<Day> {
       required this.peakInverterTempC,
       required this.peakBmsTempC,
       required this.peakCurrentA,
-      required this.peakRpm});
+      required this.peakRpm,
+      required this.peakSocPct});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -477,6 +496,7 @@ class Day extends DataClass implements Insertable<Day> {
     map['peak_bms_temp_c'] = Variable<double>(peakBmsTempC);
     map['peak_current_a'] = Variable<double>(peakCurrentA);
     map['peak_rpm'] = Variable<int>(peakRpm);
+    map['peak_soc_pct'] = Variable<int>(peakSocPct);
     return map;
   }
 
@@ -490,6 +510,7 @@ class Day extends DataClass implements Insertable<Day> {
       peakBmsTempC: Value(peakBmsTempC),
       peakCurrentA: Value(peakCurrentA),
       peakRpm: Value(peakRpm),
+      peakSocPct: Value(peakSocPct),
     );
   }
 
@@ -505,6 +526,7 @@ class Day extends DataClass implements Insertable<Day> {
       peakBmsTempC: serializer.fromJson<double>(json['peakBmsTempC']),
       peakCurrentA: serializer.fromJson<double>(json['peakCurrentA']),
       peakRpm: serializer.fromJson<int>(json['peakRpm']),
+      peakSocPct: serializer.fromJson<int>(json['peakSocPct']),
     );
   }
   @override
@@ -519,6 +541,7 @@ class Day extends DataClass implements Insertable<Day> {
       'peakBmsTempC': serializer.toJson<double>(peakBmsTempC),
       'peakCurrentA': serializer.toJson<double>(peakCurrentA),
       'peakRpm': serializer.toJson<int>(peakRpm),
+      'peakSocPct': serializer.toJson<int>(peakSocPct),
     };
   }
 
@@ -530,7 +553,8 @@ class Day extends DataClass implements Insertable<Day> {
           double? peakInverterTempC,
           double? peakBmsTempC,
           double? peakCurrentA,
-          int? peakRpm}) =>
+          int? peakRpm,
+          int? peakSocPct}) =>
       Day(
         date: date ?? this.date,
         totalDurationSecs: totalDurationSecs ?? this.totalDurationSecs,
@@ -540,6 +564,7 @@ class Day extends DataClass implements Insertable<Day> {
         peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
         peakCurrentA: peakCurrentA ?? this.peakCurrentA,
         peakRpm: peakRpm ?? this.peakRpm,
+        peakSocPct: peakSocPct ?? this.peakSocPct,
       );
   Day copyWithCompanion(DaysCompanion data) {
     return Day(
@@ -561,6 +586,8 @@ class Day extends DataClass implements Insertable<Day> {
           ? data.peakCurrentA.value
           : this.peakCurrentA,
       peakRpm: data.peakRpm.present ? data.peakRpm.value : this.peakRpm,
+      peakSocPct:
+          data.peakSocPct.present ? data.peakSocPct.value : this.peakSocPct,
     );
   }
 
@@ -574,14 +601,23 @@ class Day extends DataClass implements Insertable<Day> {
           ..write('peakInverterTempC: $peakInverterTempC, ')
           ..write('peakBmsTempC: $peakBmsTempC, ')
           ..write('peakCurrentA: $peakCurrentA, ')
-          ..write('peakRpm: $peakRpm')
+          ..write('peakRpm: $peakRpm, ')
+          ..write('peakSocPct: $peakSocPct')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(date, totalDurationSecs, totalAh,
-      peakMotorTempC, peakInverterTempC, peakBmsTempC, peakCurrentA, peakRpm);
+  int get hashCode => Object.hash(
+      date,
+      totalDurationSecs,
+      totalAh,
+      peakMotorTempC,
+      peakInverterTempC,
+      peakBmsTempC,
+      peakCurrentA,
+      peakRpm,
+      peakSocPct);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -593,7 +629,8 @@ class Day extends DataClass implements Insertable<Day> {
           other.peakInverterTempC == this.peakInverterTempC &&
           other.peakBmsTempC == this.peakBmsTempC &&
           other.peakCurrentA == this.peakCurrentA &&
-          other.peakRpm == this.peakRpm);
+          other.peakRpm == this.peakRpm &&
+          other.peakSocPct == this.peakSocPct);
 }
 
 class DaysCompanion extends UpdateCompanion<Day> {
@@ -605,6 +642,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
   final Value<double> peakBmsTempC;
   final Value<double> peakCurrentA;
   final Value<int> peakRpm;
+  final Value<int> peakSocPct;
   final Value<int> rowid;
   const DaysCompanion({
     this.date = const Value.absent(),
@@ -615,6 +653,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     this.peakBmsTempC = const Value.absent(),
     this.peakCurrentA = const Value.absent(),
     this.peakRpm = const Value.absent(),
+    this.peakSocPct = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   DaysCompanion.insert({
@@ -626,6 +665,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     required double peakBmsTempC,
     required double peakCurrentA,
     required int peakRpm,
+    this.peakSocPct = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : date = Value(date),
         totalDurationSecs = Value(totalDurationSecs),
@@ -644,6 +684,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     Expression<double>? peakBmsTempC,
     Expression<double>? peakCurrentA,
     Expression<int>? peakRpm,
+    Expression<int>? peakSocPct,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -655,6 +696,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       if (peakBmsTempC != null) 'peak_bms_temp_c': peakBmsTempC,
       if (peakCurrentA != null) 'peak_current_a': peakCurrentA,
       if (peakRpm != null) 'peak_rpm': peakRpm,
+      if (peakSocPct != null) 'peak_soc_pct': peakSocPct,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -668,6 +710,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       Value<double>? peakBmsTempC,
       Value<double>? peakCurrentA,
       Value<int>? peakRpm,
+      Value<int>? peakSocPct,
       Value<int>? rowid}) {
     return DaysCompanion(
       date: date ?? this.date,
@@ -678,6 +721,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
       peakCurrentA: peakCurrentA ?? this.peakCurrentA,
       peakRpm: peakRpm ?? this.peakRpm,
+      peakSocPct: peakSocPct ?? this.peakSocPct,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -709,6 +753,9 @@ class DaysCompanion extends UpdateCompanion<Day> {
     if (peakRpm.present) {
       map['peak_rpm'] = Variable<int>(peakRpm.value);
     }
+    if (peakSocPct.present) {
+      map['peak_soc_pct'] = Variable<int>(peakSocPct.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -726,6 +773,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
           ..write('peakBmsTempC: $peakBmsTempC, ')
           ..write('peakCurrentA: $peakCurrentA, ')
           ..write('peakRpm: $peakRpm, ')
+          ..write('peakSocPct: $peakSocPct, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -820,6 +868,17 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
       'name', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _socStartMeta =
+      const VerificationMeta('socStart');
+  @override
+  late final GeneratedColumn<int> socStart = GeneratedColumn<int>(
+      'soc_start', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _socEndMeta = const VerificationMeta('socEnd');
+  @override
+  late final GeneratedColumn<int> socEnd = GeneratedColumn<int>(
+      'soc_end', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -834,7 +893,9 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
         peakInverterTempC,
         peakBmsTempC,
         peakCurrentA,
-        name
+        name,
+        socStart,
+        socEnd
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -933,6 +994,14 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
       context.handle(
           _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
     }
+    if (data.containsKey('soc_start')) {
+      context.handle(_socStartMeta,
+          socStart.isAcceptableOrUnknown(data['soc_start']!, _socStartMeta));
+    }
+    if (data.containsKey('soc_end')) {
+      context.handle(_socEndMeta,
+          socEnd.isAcceptableOrUnknown(data['soc_end']!, _socEndMeta));
+    }
     return context;
   }
 
@@ -968,6 +1037,10 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
           .read(DriftSqlType.double, data['${effectivePrefix}peak_current_a'])!,
       name: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}name']),
+      socStart: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}soc_start']),
+      socEnd: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}soc_end']),
     );
   }
 
@@ -991,6 +1064,8 @@ class Trip extends DataClass implements Insertable<Trip> {
   final double peakBmsTempC;
   final double peakCurrentA;
   final String? name;
+  final int? socStart;
+  final int? socEnd;
   const Trip(
       {required this.id,
       required this.dayDate,
@@ -1004,7 +1079,9 @@ class Trip extends DataClass implements Insertable<Trip> {
       required this.peakInverterTempC,
       required this.peakBmsTempC,
       required this.peakCurrentA,
-      this.name});
+      this.name,
+      this.socStart,
+      this.socEnd});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1022,6 +1099,12 @@ class Trip extends DataClass implements Insertable<Trip> {
     map['peak_current_a'] = Variable<double>(peakCurrentA);
     if (!nullToAbsent || name != null) {
       map['name'] = Variable<String>(name);
+    }
+    if (!nullToAbsent || socStart != null) {
+      map['soc_start'] = Variable<int>(socStart);
+    }
+    if (!nullToAbsent || socEnd != null) {
+      map['soc_end'] = Variable<int>(socEnd);
     }
     return map;
   }
@@ -1041,6 +1124,11 @@ class Trip extends DataClass implements Insertable<Trip> {
       peakBmsTempC: Value(peakBmsTempC),
       peakCurrentA: Value(peakCurrentA),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
+      socStart: socStart == null && nullToAbsent
+          ? const Value.absent()
+          : Value(socStart),
+      socEnd:
+          socEnd == null && nullToAbsent ? const Value.absent() : Value(socEnd),
     );
   }
 
@@ -1061,6 +1149,8 @@ class Trip extends DataClass implements Insertable<Trip> {
       peakBmsTempC: serializer.fromJson<double>(json['peakBmsTempC']),
       peakCurrentA: serializer.fromJson<double>(json['peakCurrentA']),
       name: serializer.fromJson<String?>(json['name']),
+      socStart: serializer.fromJson<int?>(json['socStart']),
+      socEnd: serializer.fromJson<int?>(json['socEnd']),
     );
   }
   @override
@@ -1080,6 +1170,8 @@ class Trip extends DataClass implements Insertable<Trip> {
       'peakBmsTempC': serializer.toJson<double>(peakBmsTempC),
       'peakCurrentA': serializer.toJson<double>(peakCurrentA),
       'name': serializer.toJson<String?>(name),
+      'socStart': serializer.toJson<int?>(socStart),
+      'socEnd': serializer.toJson<int?>(socEnd),
     };
   }
 
@@ -1096,7 +1188,9 @@ class Trip extends DataClass implements Insertable<Trip> {
           double? peakInverterTempC,
           double? peakBmsTempC,
           double? peakCurrentA,
-          Value<String?> name = const Value.absent()}) =>
+          Value<String?> name = const Value.absent(),
+          Value<int?> socStart = const Value.absent(),
+          Value<int?> socEnd = const Value.absent()}) =>
       Trip(
         id: id ?? this.id,
         dayDate: dayDate ?? this.dayDate,
@@ -1111,6 +1205,8 @@ class Trip extends DataClass implements Insertable<Trip> {
         peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
         peakCurrentA: peakCurrentA ?? this.peakCurrentA,
         name: name.present ? name.value : this.name,
+        socStart: socStart.present ? socStart.value : this.socStart,
+        socEnd: socEnd.present ? socEnd.value : this.socEnd,
       );
   Trip copyWithCompanion(TripsCompanion data) {
     return Trip(
@@ -1139,6 +1235,8 @@ class Trip extends DataClass implements Insertable<Trip> {
           ? data.peakCurrentA.value
           : this.peakCurrentA,
       name: data.name.present ? data.name.value : this.name,
+      socStart: data.socStart.present ? data.socStart.value : this.socStart,
+      socEnd: data.socEnd.present ? data.socEnd.value : this.socEnd,
     );
   }
 
@@ -1157,7 +1255,9 @@ class Trip extends DataClass implements Insertable<Trip> {
           ..write('peakInverterTempC: $peakInverterTempC, ')
           ..write('peakBmsTempC: $peakBmsTempC, ')
           ..write('peakCurrentA: $peakCurrentA, ')
-          ..write('name: $name')
+          ..write('name: $name, ')
+          ..write('socStart: $socStart, ')
+          ..write('socEnd: $socEnd')
           ..write(')'))
         .toString();
   }
@@ -1176,7 +1276,9 @@ class Trip extends DataClass implements Insertable<Trip> {
       peakInverterTempC,
       peakBmsTempC,
       peakCurrentA,
-      name);
+      name,
+      socStart,
+      socEnd);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1193,7 +1295,9 @@ class Trip extends DataClass implements Insertable<Trip> {
           other.peakInverterTempC == this.peakInverterTempC &&
           other.peakBmsTempC == this.peakBmsTempC &&
           other.peakCurrentA == this.peakCurrentA &&
-          other.name == this.name);
+          other.name == this.name &&
+          other.socStart == this.socStart &&
+          other.socEnd == this.socEnd);
 }
 
 class TripsCompanion extends UpdateCompanion<Trip> {
@@ -1210,6 +1314,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
   final Value<double> peakBmsTempC;
   final Value<double> peakCurrentA;
   final Value<String?> name;
+  final Value<int?> socStart;
+  final Value<int?> socEnd;
   const TripsCompanion({
     this.id = const Value.absent(),
     this.dayDate = const Value.absent(),
@@ -1224,6 +1330,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     this.peakBmsTempC = const Value.absent(),
     this.peakCurrentA = const Value.absent(),
     this.name = const Value.absent(),
+    this.socStart = const Value.absent(),
+    this.socEnd = const Value.absent(),
   });
   TripsCompanion.insert({
     this.id = const Value.absent(),
@@ -1239,6 +1347,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     required double peakBmsTempC,
     required double peakCurrentA,
     this.name = const Value.absent(),
+    this.socStart = const Value.absent(),
+    this.socEnd = const Value.absent(),
   })  : dayDate = Value(dayDate),
         tripNumber = Value(tripNumber),
         startUnix = Value(startUnix),
@@ -1264,6 +1374,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     Expression<double>? peakBmsTempC,
     Expression<double>? peakCurrentA,
     Expression<String>? name,
+    Expression<int>? socStart,
+    Expression<int>? socEnd,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1279,6 +1391,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       if (peakBmsTempC != null) 'peak_bms_temp_c': peakBmsTempC,
       if (peakCurrentA != null) 'peak_current_a': peakCurrentA,
       if (name != null) 'name': name,
+      if (socStart != null) 'soc_start': socStart,
+      if (socEnd != null) 'soc_end': socEnd,
     });
   }
 
@@ -1295,7 +1409,9 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       Value<double>? peakInverterTempC,
       Value<double>? peakBmsTempC,
       Value<double>? peakCurrentA,
-      Value<String?>? name}) {
+      Value<String?>? name,
+      Value<int?>? socStart,
+      Value<int?>? socEnd}) {
     return TripsCompanion(
       id: id ?? this.id,
       dayDate: dayDate ?? this.dayDate,
@@ -1310,6 +1426,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
       peakCurrentA: peakCurrentA ?? this.peakCurrentA,
       name: name ?? this.name,
+      socStart: socStart ?? this.socStart,
+      socEnd: socEnd ?? this.socEnd,
     );
   }
 
@@ -1355,6 +1473,12 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     if (name.present) {
       map['name'] = Variable<String>(name.value);
     }
+    if (socStart.present) {
+      map['soc_start'] = Variable<int>(socStart.value);
+    }
+    if (socEnd.present) {
+      map['soc_end'] = Variable<int>(socEnd.value);
+    }
     return map;
   }
 
@@ -1373,7 +1497,9 @@ class TripsCompanion extends UpdateCompanion<Trip> {
           ..write('peakInverterTempC: $peakInverterTempC, ')
           ..write('peakBmsTempC: $peakBmsTempC, ')
           ..write('peakCurrentA: $peakCurrentA, ')
-          ..write('name: $name')
+          ..write('name: $name, ')
+          ..write('socStart: $socStart, ')
+          ..write('socEnd: $socEnd')
           ..write(')'))
         .toString();
   }
@@ -1444,11 +1570,25 @@ class $LogRecordsTable extends LogRecords
   late final GeneratedColumn<double> packVoltageV = GeneratedColumn<double>(
       'pack_voltage_v', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _packKwMeta = const VerificationMeta('packKw');
+  @override
+  late final GeneratedColumn<double> packKw = GeneratedColumn<double>(
+      'pack_kw', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
   static const VerificationMeta _ahUsedMeta = const VerificationMeta('ahUsed');
   @override
   late final GeneratedColumn<double> ahUsed = GeneratedColumn<double>(
       'ah_used', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _socPctMeta = const VerificationMeta('socPct');
+  @override
+  late final GeneratedColumn<int> socPct = GeneratedColumn<int>(
+      'soc_pct', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _bmsTempMaxCMeta =
       const VerificationMeta('bmsTempMaxC');
   @override
@@ -1498,7 +1638,9 @@ class $LogRecordsTable extends LogRecords
         inverterTempC,
         packCurrentA,
         packVoltageV,
+        packKw,
         ahUsed,
+        socPct,
         bmsTempMaxC,
         bmsTempMinC,
         cellVoltageMaxMv,
@@ -1575,11 +1717,19 @@ class $LogRecordsTable extends LogRecords
     } else if (isInserting) {
       context.missing(_packVoltageVMeta);
     }
+    if (data.containsKey('pack_kw')) {
+      context.handle(_packKwMeta,
+          packKw.isAcceptableOrUnknown(data['pack_kw']!, _packKwMeta));
+    }
     if (data.containsKey('ah_used')) {
       context.handle(_ahUsedMeta,
           ahUsed.isAcceptableOrUnknown(data['ah_used']!, _ahUsedMeta));
     } else if (isInserting) {
       context.missing(_ahUsedMeta);
+    }
+    if (data.containsKey('soc_pct')) {
+      context.handle(_socPctMeta,
+          socPct.isAcceptableOrUnknown(data['soc_pct']!, _socPctMeta));
     }
     if (data.containsKey('bms_temp_max_c')) {
       context.handle(
@@ -1652,8 +1802,12 @@ class $LogRecordsTable extends LogRecords
           .read(DriftSqlType.double, data['${effectivePrefix}pack_current_a'])!,
       packVoltageV: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}pack_voltage_v'])!,
+      packKw: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}pack_kw'])!,
       ahUsed: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}ah_used'])!,
+      socPct: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}soc_pct'])!,
       bmsTempMaxC: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}bms_temp_max_c'])!,
       bmsTempMinC: attachedDatabase.typeMapping
@@ -1685,7 +1839,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
   final double inverterTempC;
   final double packCurrentA;
   final double packVoltageV;
+  final double packKw;
   final double ahUsed;
+  final int socPct;
   final double bmsTempMaxC;
   final double bmsTempMinC;
   final int cellVoltageMaxMv;
@@ -1702,7 +1858,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       required this.inverterTempC,
       required this.packCurrentA,
       required this.packVoltageV,
+      required this.packKw,
       required this.ahUsed,
+      required this.socPct,
       required this.bmsTempMaxC,
       required this.bmsTempMinC,
       required this.cellVoltageMaxMv,
@@ -1721,7 +1879,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
     map['inverter_temp_c'] = Variable<double>(inverterTempC);
     map['pack_current_a'] = Variable<double>(packCurrentA);
     map['pack_voltage_v'] = Variable<double>(packVoltageV);
+    map['pack_kw'] = Variable<double>(packKw);
     map['ah_used'] = Variable<double>(ahUsed);
+    map['soc_pct'] = Variable<int>(socPct);
     map['bms_temp_max_c'] = Variable<double>(bmsTempMaxC);
     map['bms_temp_min_c'] = Variable<double>(bmsTempMinC);
     map['cell_voltage_max_mv'] = Variable<int>(cellVoltageMaxMv);
@@ -1744,7 +1904,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       inverterTempC: Value(inverterTempC),
       packCurrentA: Value(packCurrentA),
       packVoltageV: Value(packVoltageV),
+      packKw: Value(packKw),
       ahUsed: Value(ahUsed),
+      socPct: Value(socPct),
       bmsTempMaxC: Value(bmsTempMaxC),
       bmsTempMinC: Value(bmsTempMinC),
       cellVoltageMaxMv: Value(cellVoltageMaxMv),
@@ -1768,7 +1930,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       inverterTempC: serializer.fromJson<double>(json['inverterTempC']),
       packCurrentA: serializer.fromJson<double>(json['packCurrentA']),
       packVoltageV: serializer.fromJson<double>(json['packVoltageV']),
+      packKw: serializer.fromJson<double>(json['packKw']),
       ahUsed: serializer.fromJson<double>(json['ahUsed']),
+      socPct: serializer.fromJson<int>(json['socPct']),
       bmsTempMaxC: serializer.fromJson<double>(json['bmsTempMaxC']),
       bmsTempMinC: serializer.fromJson<double>(json['bmsTempMinC']),
       cellVoltageMaxMv: serializer.fromJson<int>(json['cellVoltageMaxMv']),
@@ -1790,7 +1954,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       'inverterTempC': serializer.toJson<double>(inverterTempC),
       'packCurrentA': serializer.toJson<double>(packCurrentA),
       'packVoltageV': serializer.toJson<double>(packVoltageV),
+      'packKw': serializer.toJson<double>(packKw),
       'ahUsed': serializer.toJson<double>(ahUsed),
+      'socPct': serializer.toJson<int>(socPct),
       'bmsTempMaxC': serializer.toJson<double>(bmsTempMaxC),
       'bmsTempMinC': serializer.toJson<double>(bmsTempMinC),
       'cellVoltageMaxMv': serializer.toJson<int>(cellVoltageMaxMv),
@@ -1810,7 +1976,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           double? inverterTempC,
           double? packCurrentA,
           double? packVoltageV,
+          double? packKw,
           double? ahUsed,
+          int? socPct,
           double? bmsTempMaxC,
           double? bmsTempMinC,
           int? cellVoltageMaxMv,
@@ -1827,7 +1995,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
         inverterTempC: inverterTempC ?? this.inverterTempC,
         packCurrentA: packCurrentA ?? this.packCurrentA,
         packVoltageV: packVoltageV ?? this.packVoltageV,
+        packKw: packKw ?? this.packKw,
         ahUsed: ahUsed ?? this.ahUsed,
+        socPct: socPct ?? this.socPct,
         bmsTempMaxC: bmsTempMaxC ?? this.bmsTempMaxC,
         bmsTempMinC: bmsTempMinC ?? this.bmsTempMinC,
         cellVoltageMaxMv: cellVoltageMaxMv ?? this.cellVoltageMaxMv,
@@ -1853,7 +2023,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       packVoltageV: data.packVoltageV.present
           ? data.packVoltageV.value
           : this.packVoltageV,
+      packKw: data.packKw.present ? data.packKw.value : this.packKw,
       ahUsed: data.ahUsed.present ? data.ahUsed.value : this.ahUsed,
+      socPct: data.socPct.present ? data.socPct.value : this.socPct,
       bmsTempMaxC:
           data.bmsTempMaxC.present ? data.bmsTempMaxC.value : this.bmsTempMaxC,
       bmsTempMinC:
@@ -1883,7 +2055,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           ..write('inverterTempC: $inverterTempC, ')
           ..write('packCurrentA: $packCurrentA, ')
           ..write('packVoltageV: $packVoltageV, ')
+          ..write('packKw: $packKw, ')
           ..write('ahUsed: $ahUsed, ')
+          ..write('socPct: $socPct, ')
           ..write('bmsTempMaxC: $bmsTempMaxC, ')
           ..write('bmsTempMinC: $bmsTempMinC, ')
           ..write('cellVoltageMaxMv: $cellVoltageMaxMv, ')
@@ -1905,7 +2079,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       inverterTempC,
       packCurrentA,
       packVoltageV,
+      packKw,
       ahUsed,
+      socPct,
       bmsTempMaxC,
       bmsTempMinC,
       cellVoltageMaxMv,
@@ -1925,7 +2101,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           other.inverterTempC == this.inverterTempC &&
           other.packCurrentA == this.packCurrentA &&
           other.packVoltageV == this.packVoltageV &&
+          other.packKw == this.packKw &&
           other.ahUsed == this.ahUsed &&
+          other.socPct == this.socPct &&
           other.bmsTempMaxC == this.bmsTempMaxC &&
           other.bmsTempMinC == this.bmsTempMinC &&
           other.cellVoltageMaxMv == this.cellVoltageMaxMv &&
@@ -1944,7 +2122,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
   final Value<double> inverterTempC;
   final Value<double> packCurrentA;
   final Value<double> packVoltageV;
+  final Value<double> packKw;
   final Value<double> ahUsed;
+  final Value<int> socPct;
   final Value<double> bmsTempMaxC;
   final Value<double> bmsTempMinC;
   final Value<int> cellVoltageMaxMv;
@@ -1961,7 +2141,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     this.inverterTempC = const Value.absent(),
     this.packCurrentA = const Value.absent(),
     this.packVoltageV = const Value.absent(),
+    this.packKw = const Value.absent(),
     this.ahUsed = const Value.absent(),
+    this.socPct = const Value.absent(),
     this.bmsTempMaxC = const Value.absent(),
     this.bmsTempMinC = const Value.absent(),
     this.cellVoltageMaxMv = const Value.absent(),
@@ -1979,7 +2161,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     required double inverterTempC,
     required double packCurrentA,
     required double packVoltageV,
+    this.packKw = const Value.absent(),
     required double ahUsed,
+    this.socPct = const Value.absent(),
     required double bmsTempMaxC,
     required double bmsTempMinC,
     required int cellVoltageMaxMv,
@@ -2010,7 +2194,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     Expression<double>? inverterTempC,
     Expression<double>? packCurrentA,
     Expression<double>? packVoltageV,
+    Expression<double>? packKw,
     Expression<double>? ahUsed,
+    Expression<int>? socPct,
     Expression<double>? bmsTempMaxC,
     Expression<double>? bmsTempMinC,
     Expression<int>? cellVoltageMaxMv,
@@ -2028,7 +2214,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       if (inverterTempC != null) 'inverter_temp_c': inverterTempC,
       if (packCurrentA != null) 'pack_current_a': packCurrentA,
       if (packVoltageV != null) 'pack_voltage_v': packVoltageV,
+      if (packKw != null) 'pack_kw': packKw,
       if (ahUsed != null) 'ah_used': ahUsed,
+      if (socPct != null) 'soc_pct': socPct,
       if (bmsTempMaxC != null) 'bms_temp_max_c': bmsTempMaxC,
       if (bmsTempMinC != null) 'bms_temp_min_c': bmsTempMinC,
       if (cellVoltageMaxMv != null) 'cell_voltage_max_mv': cellVoltageMaxMv,
@@ -2048,7 +2236,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       Value<double>? inverterTempC,
       Value<double>? packCurrentA,
       Value<double>? packVoltageV,
+      Value<double>? packKw,
       Value<double>? ahUsed,
+      Value<int>? socPct,
       Value<double>? bmsTempMaxC,
       Value<double>? bmsTempMinC,
       Value<int>? cellVoltageMaxMv,
@@ -2065,7 +2255,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       inverterTempC: inverterTempC ?? this.inverterTempC,
       packCurrentA: packCurrentA ?? this.packCurrentA,
       packVoltageV: packVoltageV ?? this.packVoltageV,
+      packKw: packKw ?? this.packKw,
       ahUsed: ahUsed ?? this.ahUsed,
+      socPct: socPct ?? this.socPct,
       bmsTempMaxC: bmsTempMaxC ?? this.bmsTempMaxC,
       bmsTempMinC: bmsTempMinC ?? this.bmsTempMinC,
       cellVoltageMaxMv: cellVoltageMaxMv ?? this.cellVoltageMaxMv,
@@ -2105,8 +2297,14 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     if (packVoltageV.present) {
       map['pack_voltage_v'] = Variable<double>(packVoltageV.value);
     }
+    if (packKw.present) {
+      map['pack_kw'] = Variable<double>(packKw.value);
+    }
     if (ahUsed.present) {
       map['ah_used'] = Variable<double>(ahUsed.value);
+    }
+    if (socPct.present) {
+      map['soc_pct'] = Variable<int>(socPct.value);
     }
     if (bmsTempMaxC.present) {
       map['bms_temp_max_c'] = Variable<double>(bmsTempMaxC.value);
@@ -2141,7 +2339,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
           ..write('inverterTempC: $inverterTempC, ')
           ..write('packCurrentA: $packCurrentA, ')
           ..write('packVoltageV: $packVoltageV, ')
+          ..write('packKw: $packKw, ')
           ..write('ahUsed: $ahUsed, ')
+          ..write('socPct: $socPct, ')
           ..write('bmsTempMaxC: $bmsTempMaxC, ')
           ..write('bmsTempMinC: $bmsTempMinC, ')
           ..write('cellVoltageMaxMv: $cellVoltageMaxMv, ')
@@ -2333,6 +2533,7 @@ typedef $$DaysTableCreateCompanionBuilder = DaysCompanion Function({
   required double peakBmsTempC,
   required double peakCurrentA,
   required int peakRpm,
+  Value<int> peakSocPct,
   Value<int> rowid,
 });
 typedef $$DaysTableUpdateCompanionBuilder = DaysCompanion Function({
@@ -2344,6 +2545,7 @@ typedef $$DaysTableUpdateCompanionBuilder = DaysCompanion Function({
   Value<double> peakBmsTempC,
   Value<double> peakCurrentA,
   Value<int> peakRpm,
+  Value<int> peakSocPct,
   Value<int> rowid,
 });
 
@@ -2414,6 +2616,9 @@ class $$DaysTableFilterComposer extends Composer<_$AppDatabase, $DaysTable> {
 
   ColumnFilters<int> get peakRpm => $composableBuilder(
       column: $table.peakRpm, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get peakSocPct => $composableBuilder(
+      column: $table.peakSocPct, builder: (column) => ColumnFilters(column));
 
   Expression<bool> tripsRefs(
       Expression<bool> Function($$TripsTableFilterComposer f) f) {
@@ -2494,6 +2699,9 @@ class $$DaysTableOrderingComposer extends Composer<_$AppDatabase, $DaysTable> {
 
   ColumnOrderings<int> get peakRpm => $composableBuilder(
       column: $table.peakRpm, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get peakSocPct => $composableBuilder(
+      column: $table.peakSocPct, builder: (column) => ColumnOrderings(column));
 }
 
 class $$DaysTableAnnotationComposer
@@ -2528,6 +2736,9 @@ class $$DaysTableAnnotationComposer
 
   GeneratedColumn<int> get peakRpm =>
       $composableBuilder(column: $table.peakRpm, builder: (column) => column);
+
+  GeneratedColumn<int> get peakSocPct => $composableBuilder(
+      column: $table.peakSocPct, builder: (column) => column);
 
   Expression<T> tripsRefs<T extends Object>(
       Expression<T> Function($$TripsTableAnnotationComposer a) f) {
@@ -2603,6 +2814,7 @@ class $$DaysTableTableManager extends RootTableManager<
             Value<double> peakBmsTempC = const Value.absent(),
             Value<double> peakCurrentA = const Value.absent(),
             Value<int> peakRpm = const Value.absent(),
+            Value<int> peakSocPct = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               DaysCompanion(
@@ -2614,6 +2826,7 @@ class $$DaysTableTableManager extends RootTableManager<
             peakBmsTempC: peakBmsTempC,
             peakCurrentA: peakCurrentA,
             peakRpm: peakRpm,
+            peakSocPct: peakSocPct,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2625,6 +2838,7 @@ class $$DaysTableTableManager extends RootTableManager<
             required double peakBmsTempC,
             required double peakCurrentA,
             required int peakRpm,
+            Value<int> peakSocPct = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               DaysCompanion.insert(
@@ -2636,6 +2850,7 @@ class $$DaysTableTableManager extends RootTableManager<
             peakBmsTempC: peakBmsTempC,
             peakCurrentA: peakCurrentA,
             peakRpm: peakRpm,
+            peakSocPct: peakSocPct,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
@@ -2707,6 +2922,8 @@ typedef $$TripsTableCreateCompanionBuilder = TripsCompanion Function({
   required double peakBmsTempC,
   required double peakCurrentA,
   Value<String?> name,
+  Value<int?> socStart,
+  Value<int?> socEnd,
 });
 typedef $$TripsTableUpdateCompanionBuilder = TripsCompanion Function({
   Value<int> id,
@@ -2722,6 +2939,8 @@ typedef $$TripsTableUpdateCompanionBuilder = TripsCompanion Function({
   Value<double> peakBmsTempC,
   Value<double> peakCurrentA,
   Value<String?> name,
+  Value<int?> socStart,
+  Value<int?> socEnd,
 });
 
 final class $$TripsTableReferences
@@ -2802,6 +3021,12 @@ class $$TripsTableFilterComposer extends Composer<_$AppDatabase, $TripsTable> {
 
   ColumnFilters<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get socStart => $composableBuilder(
+      column: $table.socStart, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get socEnd => $composableBuilder(
+      column: $table.socEnd, builder: (column) => ColumnFilters(column));
 
   $$DaysTableFilterComposer get dayDate {
     final $$DaysTableFilterComposer composer = $composerBuilder(
@@ -2895,6 +3120,12 @@ class $$TripsTableOrderingComposer
   ColumnOrderings<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get socStart => $composableBuilder(
+      column: $table.socStart, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get socEnd => $composableBuilder(
+      column: $table.socEnd, builder: (column) => ColumnOrderings(column));
+
   $$DaysTableOrderingComposer get dayDate {
     final $$DaysTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -2960,6 +3191,12 @@ class $$TripsTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get socStart =>
+      $composableBuilder(column: $table.socStart, builder: (column) => column);
+
+  GeneratedColumn<int> get socEnd =>
+      $composableBuilder(column: $table.socEnd, builder: (column) => column);
 
   $$DaysTableAnnotationComposer get dayDate {
     final $$DaysTableAnnotationComposer composer = $composerBuilder(
@@ -3039,6 +3276,8 @@ class $$TripsTableTableManager extends RootTableManager<
             Value<double> peakBmsTempC = const Value.absent(),
             Value<double> peakCurrentA = const Value.absent(),
             Value<String?> name = const Value.absent(),
+            Value<int?> socStart = const Value.absent(),
+            Value<int?> socEnd = const Value.absent(),
           }) =>
               TripsCompanion(
             id: id,
@@ -3054,6 +3293,8 @@ class $$TripsTableTableManager extends RootTableManager<
             peakBmsTempC: peakBmsTempC,
             peakCurrentA: peakCurrentA,
             name: name,
+            socStart: socStart,
+            socEnd: socEnd,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3069,6 +3310,8 @@ class $$TripsTableTableManager extends RootTableManager<
             required double peakBmsTempC,
             required double peakCurrentA,
             Value<String?> name = const Value.absent(),
+            Value<int?> socStart = const Value.absent(),
+            Value<int?> socEnd = const Value.absent(),
           }) =>
               TripsCompanion.insert(
             id: id,
@@ -3084,6 +3327,8 @@ class $$TripsTableTableManager extends RootTableManager<
             peakBmsTempC: peakBmsTempC,
             peakCurrentA: peakCurrentA,
             name: name,
+            socStart: socStart,
+            socEnd: socEnd,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>
@@ -3161,7 +3406,9 @@ typedef $$LogRecordsTableCreateCompanionBuilder = LogRecordsCompanion Function({
   required double inverterTempC,
   required double packCurrentA,
   required double packVoltageV,
+  Value<double> packKw,
   required double ahUsed,
+  Value<int> socPct,
   required double bmsTempMaxC,
   required double bmsTempMinC,
   required int cellVoltageMaxMv,
@@ -3179,7 +3426,9 @@ typedef $$LogRecordsTableUpdateCompanionBuilder = LogRecordsCompanion Function({
   Value<double> inverterTempC,
   Value<double> packCurrentA,
   Value<double> packVoltageV,
+  Value<double> packKw,
   Value<double> ahUsed,
+  Value<int> socPct,
   Value<double> bmsTempMaxC,
   Value<double> bmsTempMinC,
   Value<int> cellVoltageMaxMv,
@@ -3254,8 +3503,14 @@ class $$LogRecordsTableFilterComposer
   ColumnFilters<double> get packVoltageV => $composableBuilder(
       column: $table.packVoltageV, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<double> get packKw => $composableBuilder(
+      column: $table.packKw, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<double> get ahUsed => $composableBuilder(
       column: $table.ahUsed, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get socPct => $composableBuilder(
+      column: $table.socPct, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<double> get bmsTempMaxC => $composableBuilder(
       column: $table.bmsTempMaxC, builder: (column) => ColumnFilters(column));
@@ -3352,8 +3607,14 @@ class $$LogRecordsTableOrderingComposer
       column: $table.packVoltageV,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get packKw => $composableBuilder(
+      column: $table.packKw, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<double> get ahUsed => $composableBuilder(
       column: $table.ahUsed, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get socPct => $composableBuilder(
+      column: $table.socPct, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<double> get bmsTempMaxC => $composableBuilder(
       column: $table.bmsTempMaxC, builder: (column) => ColumnOrderings(column));
@@ -3447,8 +3708,14 @@ class $$LogRecordsTableAnnotationComposer
   GeneratedColumn<double> get packVoltageV => $composableBuilder(
       column: $table.packVoltageV, builder: (column) => column);
 
+  GeneratedColumn<double> get packKw =>
+      $composableBuilder(column: $table.packKw, builder: (column) => column);
+
   GeneratedColumn<double> get ahUsed =>
       $composableBuilder(column: $table.ahUsed, builder: (column) => column);
+
+  GeneratedColumn<int> get socPct =>
+      $composableBuilder(column: $table.socPct, builder: (column) => column);
 
   GeneratedColumn<double> get bmsTempMaxC => $composableBuilder(
       column: $table.bmsTempMaxC, builder: (column) => column);
@@ -3538,7 +3805,9 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             Value<double> inverterTempC = const Value.absent(),
             Value<double> packCurrentA = const Value.absent(),
             Value<double> packVoltageV = const Value.absent(),
+            Value<double> packKw = const Value.absent(),
             Value<double> ahUsed = const Value.absent(),
+            Value<int> socPct = const Value.absent(),
             Value<double> bmsTempMaxC = const Value.absent(),
             Value<double> bmsTempMinC = const Value.absent(),
             Value<int> cellVoltageMaxMv = const Value.absent(),
@@ -3556,7 +3825,9 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             inverterTempC: inverterTempC,
             packCurrentA: packCurrentA,
             packVoltageV: packVoltageV,
+            packKw: packKw,
             ahUsed: ahUsed,
+            socPct: socPct,
             bmsTempMaxC: bmsTempMaxC,
             bmsTempMinC: bmsTempMinC,
             cellVoltageMaxMv: cellVoltageMaxMv,
@@ -3574,7 +3845,9 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             required double inverterTempC,
             required double packCurrentA,
             required double packVoltageV,
+            Value<double> packKw = const Value.absent(),
             required double ahUsed,
+            Value<int> socPct = const Value.absent(),
             required double bmsTempMaxC,
             required double bmsTempMinC,
             required int cellVoltageMaxMv,
@@ -3592,7 +3865,9 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             inverterTempC: inverterTempC,
             packCurrentA: packCurrentA,
             packVoltageV: packVoltageV,
+            packKw: packKw,
             ahUsed: ahUsed,
+            socPct: socPct,
             bmsTempMaxC: bmsTempMaxC,
             bmsTempMinC: bmsTempMinC,
             cellVoltageMaxMv: cellVoltageMaxMv,

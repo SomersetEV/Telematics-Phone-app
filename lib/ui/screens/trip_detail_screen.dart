@@ -71,6 +71,14 @@ class _TripDetailBody extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _ChartCard(
+          title:   'Power',
+          colour:  Colors.deepOrangeAccent,
+          spots:   _toSpots((r) => r.packKw),
+          unit:    'kW',
+          records: records,
+        ),
+        const SizedBox(height: 12),
+        _ChartCard(
           title:   'Temperatures',
           records: records,
           multiLine: [
@@ -91,6 +99,14 @@ class _TripDetailBody extends StatelessWidget {
             ),
           ],
           unit: '°C',
+        ),
+        const SizedBox(height: 12),
+        _ChartCard(
+          title:   'State of Charge',
+          colour:  Colors.lightGreenAccent,
+          spots:   _toSpots((r) => r.socPct.toDouble()),
+          unit:    '%',
+          records: records,
         ),
         const SizedBox(height: 12),
         _ChartCard(
@@ -154,6 +170,14 @@ class _StatsBar extends StatelessWidget {
               icon:  Icons.thermostat,
               valueColour: _tempColour(trip.peakMotorTempC),
             ),
+            if (trip.socStart != null || trip.socEnd != null) ...[
+              _divider(),
+              _StatItem(
+                label: 'SoC',
+                value: '${trip.socStart ?? '?'}% → ${trip.socEnd ?? '?'}%',
+                icon:  Icons.battery_charging_full,
+              ),
+            ],
           ],
         ),
       ),
@@ -299,7 +323,7 @@ class _ChartCard extends StatelessWidget {
         show: true,
         drawVerticalLine: false,
         getDrawingHorizontalLine: (_) => FlLine(
-          color:       theme.colorScheme.outlineVariant.withOpacity(0.3),
+          color:       theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
           strokeWidth: 1,
         ),
       ),
@@ -356,7 +380,7 @@ class _ChartCard extends StatelessWidget {
       dotData:        const FlDotData(show: false),
       belowBarData:   BarAreaData(
         show:  true,
-        color: colour.withOpacity(0.08),
+        color: colour.withValues(alpha: 0.08),
       ),
     );
   }

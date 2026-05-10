@@ -85,7 +85,6 @@ class _BleScannerScreenState extends State<BleScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme  = Theme.of(context);
     final sorted = _results.values.toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
 

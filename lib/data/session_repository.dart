@@ -67,7 +67,8 @@ class SessionRepository {
             peakInverterTempC: Value(_max(existing.peakInverterTempC, dayCompanion.peakInverterTempC.value)),
             peakBmsTempC:      Value(_max(existing.peakBmsTempC,      dayCompanion.peakBmsTempC.value)),
             peakCurrentA:      Value(_max(existing.peakCurrentA,      dayCompanion.peakCurrentA.value)),
-            peakRpm:           Value(_imax(existing.peakRpm,           dayCompanion.peakRpm.value)),
+            peakRpm:           Value(_imax(existing.peakRpm,          dayCompanion.peakRpm.value)),
+            peakSocPct:        Value(_imax(existing.peakSocPct,       dayCompanion.peakSocPct.value)),
           ));
         } else {
           await db.upsertDay(dayCompanion);
@@ -111,7 +112,7 @@ class SessionRepository {
         esp32SessionId:           Value(esp32SessionId),
         syncedAt:                 Value(DateTime.fromMillisecondsSinceEpoch(syncedAtUnix * 1000)),
         rawCsvPath:               Value(rawCsvPath),
-        bestEffortOffsetSeconds:  Value(0),  // populated by parser, stored here for reference
+        bestEffortOffsetSeconds:  const Value(0),
       ));
     });
   }

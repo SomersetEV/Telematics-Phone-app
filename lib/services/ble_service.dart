@@ -80,10 +80,15 @@ class BleService extends ChangeNotifier {
 
   // ── Private ────────────────────────────────────────────────────────────────
   BluetoothDevice?         _device;
+  BluetoothDevice?         _lastDevice;       // remembered for auto-reconnect
   BluetoothCharacteristic? _rxChar;   // we write to this
   BluetoothCharacteristic? _txChar;   // we subscribe to this
   StreamSubscription?      _notifySub;
   StreamSubscription?      _stateSub;
+  StreamSubscription?      _scanSub;
+
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 3;
 
   // Incoming data buffer
   final StringBuffer _incomingBuffer = StringBuffer();
@@ -110,10 +115,12 @@ class BleService extends ChangeNotifier {
     // Stop any existing scan
     await FlutterBluePlus.stopScan();
 
-    // Listen for scan results
-    FlutterBluePlus.scanResults.listen((results) async {
+    // Listen for scan results — store subscription so it can be cancelled
+    _scanSub = FlutterBluePlus.scanResults.listen((results) async {
       for (final result in results) {
         if (result.device.platformName == _deviceName) {
+          _scanSub?.cancel();
+          _scanSub = null;
           await FlutterBluePlus.stopScan();
           await _connect(result.device);
           return;
@@ -138,7 +145,8 @@ class BleService extends ChangeNotifier {
 
   Future<void> _connect(BluetoothDevice device) async {
     _setState(BleConnectionState.connecting);
-    _device = device;
+    _device     = device;
+    _lastDevice = device;
 
     // Watch for unexpected disconnection
     _stateSub = device.connectionState.listen((state) {
@@ -181,6 +189,7 @@ class BleService extends ChangeNotifier {
     await _txChar!.setNotifyValue(true);
     _notifySub = _txChar!.onValueReceived.listen(_onNotification);
 
+    _reconnectAttempts = 0;
     _setState(BleConnectionState.connected);
 
     // Kick off sync protocol
@@ -188,13 +197,21 @@ class BleService extends ChangeNotifier {
   }
 
   void disconnect() {
+    // Cancel state listener before disconnecting so it doesn't also call
+    // _handleDisconnect and run cleanup twice.
+    _stateSub?.cancel();
+    _stateSub = null;
     _device?.disconnect();
-    _handleDisconnect();
+    _handleDisconnect(reconnect: false);
   }
 
-  void _handleDisconnect() {
+  void _handleDisconnect({bool reconnect = true}) {
     _notifySub?.cancel();
     _stateSub?.cancel();
+    _scanSub?.cancel();
+    _notifySub = null;
+    _stateSub  = null;
+    _scanSub   = null;
     _rxChar = null;
     _txChar = null;
     _device = null;
@@ -204,9 +221,27 @@ class BleService extends ChangeNotifier {
     _syncState = _SyncState.idle;
     _responseWaiter?.completeError('Disconnected');
     _responseWaiter = null;
-    tripActive = false;
+    tripActive   = false;
     syncProgress = null;
-    _setState(BleConnectionState.disconnected);
+
+    if (reconnect &&
+        _lastDevice != null &&
+        _reconnectAttempts < _maxReconnectAttempts) {
+      _reconnectAttempts++;
+      lastError = 'Connection lost — reconnecting '
+                  '($_reconnectAttempts/$_maxReconnectAttempts)...';
+      _setState(BleConnectionState.scanning);
+      Future.delayed(const Duration(seconds: 3), _reconnect);
+    } else {
+      _reconnectAttempts = 0;
+      _setState(BleConnectionState.disconnected);
+    }
+  }
+
+  Future<void> _reconnect() async {
+    if (connectionState != BleConnectionState.scanning) return;
+    if (_lastDevice == null) return;
+    await _connect(_lastDevice!);
   }
 
   // ── Incoming notification handler ──────────────────────────────────────────
