@@ -1,0 +1,49 @@
+name: somerset_ev_telematics
+description: SomersetEV Tractor Telematics App
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # BLE
+  flutter_blue_plus: ^1.31.0
+
+  # Database
+  drift: ^2.14.0
+  sqlite3_flutter_libs: ^0.5.0
+  path_provider: ^2.1.0
+  path: ^1.9.0
+
+  # Charts
+  fl_chart: ^0.68.0
+
+  # State management
+  provider: ^6.1.0
+
+  # Utilities
+  intl: ^0.19.0
+  collection: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  drift_dev: ^2.14.0
+  build_runner: ^2.4.0
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.14.0
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/icon.png"
+
+flutter:
+  uses-material-design: true
