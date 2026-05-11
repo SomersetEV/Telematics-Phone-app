@@ -1,8 +1,11 @@
 // lib/ui/screens/sessions_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../data/database.dart';
 import '../../data/demo_seeder.dart';
@@ -160,7 +163,15 @@ class _DayCardState extends State<_DayCard> {
                     colour: _tempColour(day.peakBmsTempC),
                   ),
 
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.share, size: 18),
+                    tooltip: 'Export session CSV',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: _shareDay,
+                  ),
+                  const SizedBox(width: 4),
                   Icon(
                     _expanded ? Icons.expand_less : Icons.expand_more,
                     color: theme.colorScheme.outline,
@@ -227,6 +238,29 @@ class _DayCardState extends State<_DayCard> {
     if (temp >= 50) return Colors.red;
     if (temp >= 40) return Colors.orange;
     return Colors.green;
+  }
+
+  Future<void> _shareDay() async {
+    final db = context.read<AppDatabase>();
+    final sessions = await db.getSessionsForDay(widget.day.date);
+    final files = sessions
+        .map((s) => XFile(s.rawCsvPath))
+        .where((f) => File(f.path).existsSync())
+        .toList();
+
+    if (!mounted) return;
+
+    if (files.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No session files found for this date')),
+      );
+      return;
+    }
+
+    await Share.shareXFiles(
+      files,
+      subject: 'SomersetEV session ${widget.day.date}',
+    );
   }
 }
 

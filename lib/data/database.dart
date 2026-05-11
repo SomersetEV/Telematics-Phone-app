@@ -131,6 +131,17 @@ class AppDatabase extends _$AppDatabase {
   Future<List<SyncSession>> getAllSyncSessions() =>
       select(syncSessions).get();
 
+  Future<List<SyncSession>> getSessionsForDay(String date) async {
+    final all = await getAllSyncSessions();
+    return all.where((s) {
+      final dt = s.syncedAt;
+      final d = '${dt.year}-'
+                '${dt.month.toString().padLeft(2, '0')}-'
+                '${dt.day.toString().padLeft(2, '0')}';
+      return d == date;
+    }).toList();
+  }
+
   Future<bool> isSessionSynced(int esp32SessionId) async {
     final row = await (select(syncSessions)
           ..where((s) => s.esp32SessionId.equals(esp32SessionId)))

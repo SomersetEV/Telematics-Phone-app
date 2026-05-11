@@ -135,16 +135,16 @@ class CsvParser {
 
       // ── CAN frame row ─────────────────────────────────────────────────────
       final parts = line.split(',');
-      if (parts.length < 11) continue;
+      if (parts.length < 13) continue;
 
       final int tickMs   = int.tryParse(parts[0]) ?? 0;
       final int canId    = _parseHex(parts[1]);
       if (canId == 0) continue;
 
-      // Byte array: parts[3..10] = b0..b7
+      // Byte array: parts[5..12] = D1..D8 (2-digit uppercase hex, no 0x prefix)
       final bytes = List<int>.filled(8, 0);
       for (int i = 0; i < 8; i++) {
-        bytes[i] = int.tryParse(parts[3 + i]) ?? 0;
+        bytes[i] = int.tryParse(parts[5 + i], radix: 16) ?? 0;
       }
 
       _decodeFrame(canId, bytes, state);
