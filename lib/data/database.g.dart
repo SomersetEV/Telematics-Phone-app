@@ -305,6 +305,14 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
   late final GeneratedColumn<double> totalAh = GeneratedColumn<double>(
       'total_ah', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _totalKwhMeta =
+      const VerificationMeta('totalKwh');
+  @override
+  late final GeneratedColumn<double> totalKwh = GeneratedColumn<double>(
+      'total_kwh', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
   static const VerificationMeta _peakMotorTempCMeta =
       const VerificationMeta('peakMotorTempC');
   @override
@@ -348,6 +356,7 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
         date,
         totalDurationSecs,
         totalAh,
+        totalKwh,
         peakMotorTempC,
         peakInverterTempC,
         peakBmsTempC,
@@ -384,6 +393,10 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
           totalAh.isAcceptableOrUnknown(data['total_ah']!, _totalAhMeta));
     } else if (isInserting) {
       context.missing(_totalAhMeta);
+    }
+    if (data.containsKey('total_kwh')) {
+      context.handle(_totalKwhMeta,
+          totalKwh.isAcceptableOrUnknown(data['total_kwh']!, _totalKwhMeta));
     }
     if (data.containsKey('peak_motor_temp_c')) {
       context.handle(
@@ -444,6 +457,8 @@ class $DaysTable extends Days with TableInfo<$DaysTable, Day> {
           DriftSqlType.int, data['${effectivePrefix}total_duration_secs'])!,
       totalAh: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}total_ah'])!,
+      totalKwh: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}total_kwh'])!,
       peakMotorTempC: attachedDatabase.typeMapping.read(
           DriftSqlType.double, data['${effectivePrefix}peak_motor_temp_c'])!,
       peakInverterTempC: attachedDatabase.typeMapping.read(
@@ -469,6 +484,7 @@ class Day extends DataClass implements Insertable<Day> {
   final String date;
   final int totalDurationSecs;
   final double totalAh;
+  final double totalKwh;
   final double peakMotorTempC;
   final double peakInverterTempC;
   final double peakBmsTempC;
@@ -479,6 +495,7 @@ class Day extends DataClass implements Insertable<Day> {
       {required this.date,
       required this.totalDurationSecs,
       required this.totalAh,
+      required this.totalKwh,
       required this.peakMotorTempC,
       required this.peakInverterTempC,
       required this.peakBmsTempC,
@@ -491,6 +508,7 @@ class Day extends DataClass implements Insertable<Day> {
     map['date'] = Variable<String>(date);
     map['total_duration_secs'] = Variable<int>(totalDurationSecs);
     map['total_ah'] = Variable<double>(totalAh);
+    map['total_kwh'] = Variable<double>(totalKwh);
     map['peak_motor_temp_c'] = Variable<double>(peakMotorTempC);
     map['peak_inverter_temp_c'] = Variable<double>(peakInverterTempC);
     map['peak_bms_temp_c'] = Variable<double>(peakBmsTempC);
@@ -505,6 +523,7 @@ class Day extends DataClass implements Insertable<Day> {
       date: Value(date),
       totalDurationSecs: Value(totalDurationSecs),
       totalAh: Value(totalAh),
+      totalKwh: Value(totalKwh),
       peakMotorTempC: Value(peakMotorTempC),
       peakInverterTempC: Value(peakInverterTempC),
       peakBmsTempC: Value(peakBmsTempC),
@@ -521,6 +540,7 @@ class Day extends DataClass implements Insertable<Day> {
       date: serializer.fromJson<String>(json['date']),
       totalDurationSecs: serializer.fromJson<int>(json['totalDurationSecs']),
       totalAh: serializer.fromJson<double>(json['totalAh']),
+      totalKwh: serializer.fromJson<double>(json['totalKwh']),
       peakMotorTempC: serializer.fromJson<double>(json['peakMotorTempC']),
       peakInverterTempC: serializer.fromJson<double>(json['peakInverterTempC']),
       peakBmsTempC: serializer.fromJson<double>(json['peakBmsTempC']),
@@ -536,6 +556,7 @@ class Day extends DataClass implements Insertable<Day> {
       'date': serializer.toJson<String>(date),
       'totalDurationSecs': serializer.toJson<int>(totalDurationSecs),
       'totalAh': serializer.toJson<double>(totalAh),
+      'totalKwh': serializer.toJson<double>(totalKwh),
       'peakMotorTempC': serializer.toJson<double>(peakMotorTempC),
       'peakInverterTempC': serializer.toJson<double>(peakInverterTempC),
       'peakBmsTempC': serializer.toJson<double>(peakBmsTempC),
@@ -549,6 +570,7 @@ class Day extends DataClass implements Insertable<Day> {
           {String? date,
           int? totalDurationSecs,
           double? totalAh,
+          double? totalKwh,
           double? peakMotorTempC,
           double? peakInverterTempC,
           double? peakBmsTempC,
@@ -559,6 +581,7 @@ class Day extends DataClass implements Insertable<Day> {
         date: date ?? this.date,
         totalDurationSecs: totalDurationSecs ?? this.totalDurationSecs,
         totalAh: totalAh ?? this.totalAh,
+        totalKwh: totalKwh ?? this.totalKwh,
         peakMotorTempC: peakMotorTempC ?? this.peakMotorTempC,
         peakInverterTempC: peakInverterTempC ?? this.peakInverterTempC,
         peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
@@ -573,6 +596,7 @@ class Day extends DataClass implements Insertable<Day> {
           ? data.totalDurationSecs.value
           : this.totalDurationSecs,
       totalAh: data.totalAh.present ? data.totalAh.value : this.totalAh,
+      totalKwh: data.totalKwh.present ? data.totalKwh.value : this.totalKwh,
       peakMotorTempC: data.peakMotorTempC.present
           ? data.peakMotorTempC.value
           : this.peakMotorTempC,
@@ -597,6 +621,7 @@ class Day extends DataClass implements Insertable<Day> {
           ..write('date: $date, ')
           ..write('totalDurationSecs: $totalDurationSecs, ')
           ..write('totalAh: $totalAh, ')
+          ..write('totalKwh: $totalKwh, ')
           ..write('peakMotorTempC: $peakMotorTempC, ')
           ..write('peakInverterTempC: $peakInverterTempC, ')
           ..write('peakBmsTempC: $peakBmsTempC, ')
@@ -612,6 +637,7 @@ class Day extends DataClass implements Insertable<Day> {
       date,
       totalDurationSecs,
       totalAh,
+      totalKwh,
       peakMotorTempC,
       peakInverterTempC,
       peakBmsTempC,
@@ -625,6 +651,7 @@ class Day extends DataClass implements Insertable<Day> {
           other.date == this.date &&
           other.totalDurationSecs == this.totalDurationSecs &&
           other.totalAh == this.totalAh &&
+          other.totalKwh == this.totalKwh &&
           other.peakMotorTempC == this.peakMotorTempC &&
           other.peakInverterTempC == this.peakInverterTempC &&
           other.peakBmsTempC == this.peakBmsTempC &&
@@ -637,6 +664,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
   final Value<String> date;
   final Value<int> totalDurationSecs;
   final Value<double> totalAh;
+  final Value<double> totalKwh;
   final Value<double> peakMotorTempC;
   final Value<double> peakInverterTempC;
   final Value<double> peakBmsTempC;
@@ -648,6 +676,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     this.date = const Value.absent(),
     this.totalDurationSecs = const Value.absent(),
     this.totalAh = const Value.absent(),
+    this.totalKwh = const Value.absent(),
     this.peakMotorTempC = const Value.absent(),
     this.peakInverterTempC = const Value.absent(),
     this.peakBmsTempC = const Value.absent(),
@@ -660,6 +689,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     required String date,
     required int totalDurationSecs,
     required double totalAh,
+    this.totalKwh = const Value.absent(),
     required double peakMotorTempC,
     required double peakInverterTempC,
     required double peakBmsTempC,
@@ -679,6 +709,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
     Expression<String>? date,
     Expression<int>? totalDurationSecs,
     Expression<double>? totalAh,
+    Expression<double>? totalKwh,
     Expression<double>? peakMotorTempC,
     Expression<double>? peakInverterTempC,
     Expression<double>? peakBmsTempC,
@@ -691,6 +722,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       if (date != null) 'date': date,
       if (totalDurationSecs != null) 'total_duration_secs': totalDurationSecs,
       if (totalAh != null) 'total_ah': totalAh,
+      if (totalKwh != null) 'total_kwh': totalKwh,
       if (peakMotorTempC != null) 'peak_motor_temp_c': peakMotorTempC,
       if (peakInverterTempC != null) 'peak_inverter_temp_c': peakInverterTempC,
       if (peakBmsTempC != null) 'peak_bms_temp_c': peakBmsTempC,
@@ -705,6 +737,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       {Value<String>? date,
       Value<int>? totalDurationSecs,
       Value<double>? totalAh,
+      Value<double>? totalKwh,
       Value<double>? peakMotorTempC,
       Value<double>? peakInverterTempC,
       Value<double>? peakBmsTempC,
@@ -716,6 +749,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
       date: date ?? this.date,
       totalDurationSecs: totalDurationSecs ?? this.totalDurationSecs,
       totalAh: totalAh ?? this.totalAh,
+      totalKwh: totalKwh ?? this.totalKwh,
       peakMotorTempC: peakMotorTempC ?? this.peakMotorTempC,
       peakInverterTempC: peakInverterTempC ?? this.peakInverterTempC,
       peakBmsTempC: peakBmsTempC ?? this.peakBmsTempC,
@@ -737,6 +771,9 @@ class DaysCompanion extends UpdateCompanion<Day> {
     }
     if (totalAh.present) {
       map['total_ah'] = Variable<double>(totalAh.value);
+    }
+    if (totalKwh.present) {
+      map['total_kwh'] = Variable<double>(totalKwh.value);
     }
     if (peakMotorTempC.present) {
       map['peak_motor_temp_c'] = Variable<double>(peakMotorTempC.value);
@@ -768,6 +805,7 @@ class DaysCompanion extends UpdateCompanion<Day> {
           ..write('date: $date, ')
           ..write('totalDurationSecs: $totalDurationSecs, ')
           ..write('totalAh: $totalAh, ')
+          ..write('totalKwh: $totalKwh, ')
           ..write('peakMotorTempC: $peakMotorTempC, ')
           ..write('peakInverterTempC: $peakInverterTempC, ')
           ..write('peakBmsTempC: $peakBmsTempC, ')
@@ -833,6 +871,14 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
   late final GeneratedColumn<double> ahConsumed = GeneratedColumn<double>(
       'ah_consumed', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _kwhConsumedMeta =
+      const VerificationMeta('kwhConsumed');
+  @override
+  late final GeneratedColumn<double> kwhConsumed = GeneratedColumn<double>(
+      'kwh_consumed', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
   static const VerificationMeta _peakRpmMeta =
       const VerificationMeta('peakRpm');
   @override
@@ -888,6 +934,7 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
         endUnix,
         durationSecs,
         ahConsumed,
+        kwhConsumed,
         peakRpm,
         peakMotorTempC,
         peakInverterTempC,
@@ -951,6 +998,12 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
               data['ah_consumed']!, _ahConsumedMeta));
     } else if (isInserting) {
       context.missing(_ahConsumedMeta);
+    }
+    if (data.containsKey('kwh_consumed')) {
+      context.handle(
+          _kwhConsumedMeta,
+          kwhConsumed.isAcceptableOrUnknown(
+              data['kwh_consumed']!, _kwhConsumedMeta));
     }
     if (data.containsKey('peak_rpm')) {
       context.handle(_peakRpmMeta,
@@ -1025,6 +1078,8 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
           .read(DriftSqlType.int, data['${effectivePrefix}duration_secs'])!,
       ahConsumed: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}ah_consumed'])!,
+      kwhConsumed: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}kwh_consumed'])!,
       peakRpm: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}peak_rpm'])!,
       peakMotorTempC: attachedDatabase.typeMapping.read(
@@ -1058,6 +1113,7 @@ class Trip extends DataClass implements Insertable<Trip> {
   final int endUnix;
   final int durationSecs;
   final double ahConsumed;
+  final double kwhConsumed;
   final int peakRpm;
   final double peakMotorTempC;
   final double peakInverterTempC;
@@ -1074,6 +1130,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       required this.endUnix,
       required this.durationSecs,
       required this.ahConsumed,
+      required this.kwhConsumed,
       required this.peakRpm,
       required this.peakMotorTempC,
       required this.peakInverterTempC,
@@ -1092,6 +1149,7 @@ class Trip extends DataClass implements Insertable<Trip> {
     map['end_unix'] = Variable<int>(endUnix);
     map['duration_secs'] = Variable<int>(durationSecs);
     map['ah_consumed'] = Variable<double>(ahConsumed);
+    map['kwh_consumed'] = Variable<double>(kwhConsumed);
     map['peak_rpm'] = Variable<int>(peakRpm);
     map['peak_motor_temp_c'] = Variable<double>(peakMotorTempC);
     map['peak_inverter_temp_c'] = Variable<double>(peakInverterTempC);
@@ -1118,6 +1176,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       endUnix: Value(endUnix),
       durationSecs: Value(durationSecs),
       ahConsumed: Value(ahConsumed),
+      kwhConsumed: Value(kwhConsumed),
       peakRpm: Value(peakRpm),
       peakMotorTempC: Value(peakMotorTempC),
       peakInverterTempC: Value(peakInverterTempC),
@@ -1143,6 +1202,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       endUnix: serializer.fromJson<int>(json['endUnix']),
       durationSecs: serializer.fromJson<int>(json['durationSecs']),
       ahConsumed: serializer.fromJson<double>(json['ahConsumed']),
+      kwhConsumed: serializer.fromJson<double>(json['kwhConsumed']),
       peakRpm: serializer.fromJson<int>(json['peakRpm']),
       peakMotorTempC: serializer.fromJson<double>(json['peakMotorTempC']),
       peakInverterTempC: serializer.fromJson<double>(json['peakInverterTempC']),
@@ -1164,6 +1224,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       'endUnix': serializer.toJson<int>(endUnix),
       'durationSecs': serializer.toJson<int>(durationSecs),
       'ahConsumed': serializer.toJson<double>(ahConsumed),
+      'kwhConsumed': serializer.toJson<double>(kwhConsumed),
       'peakRpm': serializer.toJson<int>(peakRpm),
       'peakMotorTempC': serializer.toJson<double>(peakMotorTempC),
       'peakInverterTempC': serializer.toJson<double>(peakInverterTempC),
@@ -1183,6 +1244,7 @@ class Trip extends DataClass implements Insertable<Trip> {
           int? endUnix,
           int? durationSecs,
           double? ahConsumed,
+          double? kwhConsumed,
           int? peakRpm,
           double? peakMotorTempC,
           double? peakInverterTempC,
@@ -1199,6 +1261,7 @@ class Trip extends DataClass implements Insertable<Trip> {
         endUnix: endUnix ?? this.endUnix,
         durationSecs: durationSecs ?? this.durationSecs,
         ahConsumed: ahConsumed ?? this.ahConsumed,
+        kwhConsumed: kwhConsumed ?? this.kwhConsumed,
         peakRpm: peakRpm ?? this.peakRpm,
         peakMotorTempC: peakMotorTempC ?? this.peakMotorTempC,
         peakInverterTempC: peakInverterTempC ?? this.peakInverterTempC,
@@ -1221,6 +1284,8 @@ class Trip extends DataClass implements Insertable<Trip> {
           : this.durationSecs,
       ahConsumed:
           data.ahConsumed.present ? data.ahConsumed.value : this.ahConsumed,
+      kwhConsumed:
+          data.kwhConsumed.present ? data.kwhConsumed.value : this.kwhConsumed,
       peakRpm: data.peakRpm.present ? data.peakRpm.value : this.peakRpm,
       peakMotorTempC: data.peakMotorTempC.present
           ? data.peakMotorTempC.value
@@ -1250,6 +1315,7 @@ class Trip extends DataClass implements Insertable<Trip> {
           ..write('endUnix: $endUnix, ')
           ..write('durationSecs: $durationSecs, ')
           ..write('ahConsumed: $ahConsumed, ')
+          ..write('kwhConsumed: $kwhConsumed, ')
           ..write('peakRpm: $peakRpm, ')
           ..write('peakMotorTempC: $peakMotorTempC, ')
           ..write('peakInverterTempC: $peakInverterTempC, ')
@@ -1271,6 +1337,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       endUnix,
       durationSecs,
       ahConsumed,
+      kwhConsumed,
       peakRpm,
       peakMotorTempC,
       peakInverterTempC,
@@ -1290,6 +1357,7 @@ class Trip extends DataClass implements Insertable<Trip> {
           other.endUnix == this.endUnix &&
           other.durationSecs == this.durationSecs &&
           other.ahConsumed == this.ahConsumed &&
+          other.kwhConsumed == this.kwhConsumed &&
           other.peakRpm == this.peakRpm &&
           other.peakMotorTempC == this.peakMotorTempC &&
           other.peakInverterTempC == this.peakInverterTempC &&
@@ -1308,6 +1376,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
   final Value<int> endUnix;
   final Value<int> durationSecs;
   final Value<double> ahConsumed;
+  final Value<double> kwhConsumed;
   final Value<int> peakRpm;
   final Value<double> peakMotorTempC;
   final Value<double> peakInverterTempC;
@@ -1324,6 +1393,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     this.endUnix = const Value.absent(),
     this.durationSecs = const Value.absent(),
     this.ahConsumed = const Value.absent(),
+    this.kwhConsumed = const Value.absent(),
     this.peakRpm = const Value.absent(),
     this.peakMotorTempC = const Value.absent(),
     this.peakInverterTempC = const Value.absent(),
@@ -1341,6 +1411,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     required int endUnix,
     required int durationSecs,
     required double ahConsumed,
+    this.kwhConsumed = const Value.absent(),
     required int peakRpm,
     required double peakMotorTempC,
     required double peakInverterTempC,
@@ -1368,6 +1439,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     Expression<int>? endUnix,
     Expression<int>? durationSecs,
     Expression<double>? ahConsumed,
+    Expression<double>? kwhConsumed,
     Expression<int>? peakRpm,
     Expression<double>? peakMotorTempC,
     Expression<double>? peakInverterTempC,
@@ -1385,6 +1457,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       if (endUnix != null) 'end_unix': endUnix,
       if (durationSecs != null) 'duration_secs': durationSecs,
       if (ahConsumed != null) 'ah_consumed': ahConsumed,
+      if (kwhConsumed != null) 'kwh_consumed': kwhConsumed,
       if (peakRpm != null) 'peak_rpm': peakRpm,
       if (peakMotorTempC != null) 'peak_motor_temp_c': peakMotorTempC,
       if (peakInverterTempC != null) 'peak_inverter_temp_c': peakInverterTempC,
@@ -1404,6 +1477,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       Value<int>? endUnix,
       Value<int>? durationSecs,
       Value<double>? ahConsumed,
+      Value<double>? kwhConsumed,
       Value<int>? peakRpm,
       Value<double>? peakMotorTempC,
       Value<double>? peakInverterTempC,
@@ -1420,6 +1494,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       endUnix: endUnix ?? this.endUnix,
       durationSecs: durationSecs ?? this.durationSecs,
       ahConsumed: ahConsumed ?? this.ahConsumed,
+      kwhConsumed: kwhConsumed ?? this.kwhConsumed,
       peakRpm: peakRpm ?? this.peakRpm,
       peakMotorTempC: peakMotorTempC ?? this.peakMotorTempC,
       peakInverterTempC: peakInverterTempC ?? this.peakInverterTempC,
@@ -1454,6 +1529,9 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     }
     if (ahConsumed.present) {
       map['ah_consumed'] = Variable<double>(ahConsumed.value);
+    }
+    if (kwhConsumed.present) {
+      map['kwh_consumed'] = Variable<double>(kwhConsumed.value);
     }
     if (peakRpm.present) {
       map['peak_rpm'] = Variable<int>(peakRpm.value);
@@ -1492,6 +1570,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
           ..write('endUnix: $endUnix, ')
           ..write('durationSecs: $durationSecs, ')
           ..write('ahConsumed: $ahConsumed, ')
+          ..write('kwhConsumed: $kwhConsumed, ')
           ..write('peakRpm: $peakRpm, ')
           ..write('peakMotorTempC: $peakMotorTempC, ')
           ..write('peakInverterTempC: $peakInverterTempC, ')
@@ -2528,6 +2607,7 @@ typedef $$DaysTableCreateCompanionBuilder = DaysCompanion Function({
   required String date,
   required int totalDurationSecs,
   required double totalAh,
+  Value<double> totalKwh,
   required double peakMotorTempC,
   required double peakInverterTempC,
   required double peakBmsTempC,
@@ -2540,6 +2620,7 @@ typedef $$DaysTableUpdateCompanionBuilder = DaysCompanion Function({
   Value<String> date,
   Value<int> totalDurationSecs,
   Value<double> totalAh,
+  Value<double> totalKwh,
   Value<double> peakMotorTempC,
   Value<double> peakInverterTempC,
   Value<double> peakBmsTempC,
@@ -2599,6 +2680,9 @@ class $$DaysTableFilterComposer extends Composer<_$AppDatabase, $DaysTable> {
 
   ColumnFilters<double> get totalAh => $composableBuilder(
       column: $table.totalAh, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get totalKwh => $composableBuilder(
+      column: $table.totalKwh, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<double> get peakMotorTempC => $composableBuilder(
       column: $table.peakMotorTempC,
@@ -2681,6 +2765,9 @@ class $$DaysTableOrderingComposer extends Composer<_$AppDatabase, $DaysTable> {
   ColumnOrderings<double> get totalAh => $composableBuilder(
       column: $table.totalAh, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get totalKwh => $composableBuilder(
+      column: $table.totalKwh, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<double> get peakMotorTempC => $composableBuilder(
       column: $table.peakMotorTempC,
       builder: (column) => ColumnOrderings(column));
@@ -2721,6 +2808,9 @@ class $$DaysTableAnnotationComposer
 
   GeneratedColumn<double> get totalAh =>
       $composableBuilder(column: $table.totalAh, builder: (column) => column);
+
+  GeneratedColumn<double> get totalKwh =>
+      $composableBuilder(column: $table.totalKwh, builder: (column) => column);
 
   GeneratedColumn<double> get peakMotorTempC => $composableBuilder(
       column: $table.peakMotorTempC, builder: (column) => column);
@@ -2809,6 +2899,7 @@ class $$DaysTableTableManager extends RootTableManager<
             Value<String> date = const Value.absent(),
             Value<int> totalDurationSecs = const Value.absent(),
             Value<double> totalAh = const Value.absent(),
+            Value<double> totalKwh = const Value.absent(),
             Value<double> peakMotorTempC = const Value.absent(),
             Value<double> peakInverterTempC = const Value.absent(),
             Value<double> peakBmsTempC = const Value.absent(),
@@ -2821,6 +2912,7 @@ class $$DaysTableTableManager extends RootTableManager<
             date: date,
             totalDurationSecs: totalDurationSecs,
             totalAh: totalAh,
+            totalKwh: totalKwh,
             peakMotorTempC: peakMotorTempC,
             peakInverterTempC: peakInverterTempC,
             peakBmsTempC: peakBmsTempC,
@@ -2833,6 +2925,7 @@ class $$DaysTableTableManager extends RootTableManager<
             required String date,
             required int totalDurationSecs,
             required double totalAh,
+            Value<double> totalKwh = const Value.absent(),
             required double peakMotorTempC,
             required double peakInverterTempC,
             required double peakBmsTempC,
@@ -2845,6 +2938,7 @@ class $$DaysTableTableManager extends RootTableManager<
             date: date,
             totalDurationSecs: totalDurationSecs,
             totalAh: totalAh,
+            totalKwh: totalKwh,
             peakMotorTempC: peakMotorTempC,
             peakInverterTempC: peakInverterTempC,
             peakBmsTempC: peakBmsTempC,
@@ -2916,6 +3010,7 @@ typedef $$TripsTableCreateCompanionBuilder = TripsCompanion Function({
   required int endUnix,
   required int durationSecs,
   required double ahConsumed,
+  Value<double> kwhConsumed,
   required int peakRpm,
   required double peakMotorTempC,
   required double peakInverterTempC,
@@ -2933,6 +3028,7 @@ typedef $$TripsTableUpdateCompanionBuilder = TripsCompanion Function({
   Value<int> endUnix,
   Value<int> durationSecs,
   Value<double> ahConsumed,
+  Value<double> kwhConsumed,
   Value<int> peakRpm,
   Value<double> peakMotorTempC,
   Value<double> peakInverterTempC,
@@ -3001,6 +3097,9 @@ class $$TripsTableFilterComposer extends Composer<_$AppDatabase, $TripsTable> {
 
   ColumnFilters<double> get ahConsumed => $composableBuilder(
       column: $table.ahConsumed, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get kwhConsumed => $composableBuilder(
+      column: $table.kwhConsumed, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get peakRpm => $composableBuilder(
       column: $table.peakRpm, builder: (column) => ColumnFilters(column));
@@ -3098,6 +3197,9 @@ class $$TripsTableOrderingComposer
   ColumnOrderings<double> get ahConsumed => $composableBuilder(
       column: $table.ahConsumed, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get kwhConsumed => $composableBuilder(
+      column: $table.kwhConsumed, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get peakRpm => $composableBuilder(
       column: $table.peakRpm, builder: (column) => ColumnOrderings(column));
 
@@ -3173,6 +3275,9 @@ class $$TripsTableAnnotationComposer
 
   GeneratedColumn<double> get ahConsumed => $composableBuilder(
       column: $table.ahConsumed, builder: (column) => column);
+
+  GeneratedColumn<double> get kwhConsumed => $composableBuilder(
+      column: $table.kwhConsumed, builder: (column) => column);
 
   GeneratedColumn<int> get peakRpm =>
       $composableBuilder(column: $table.peakRpm, builder: (column) => column);
@@ -3270,6 +3375,7 @@ class $$TripsTableTableManager extends RootTableManager<
             Value<int> endUnix = const Value.absent(),
             Value<int> durationSecs = const Value.absent(),
             Value<double> ahConsumed = const Value.absent(),
+            Value<double> kwhConsumed = const Value.absent(),
             Value<int> peakRpm = const Value.absent(),
             Value<double> peakMotorTempC = const Value.absent(),
             Value<double> peakInverterTempC = const Value.absent(),
@@ -3287,6 +3393,7 @@ class $$TripsTableTableManager extends RootTableManager<
             endUnix: endUnix,
             durationSecs: durationSecs,
             ahConsumed: ahConsumed,
+            kwhConsumed: kwhConsumed,
             peakRpm: peakRpm,
             peakMotorTempC: peakMotorTempC,
             peakInverterTempC: peakInverterTempC,
@@ -3304,6 +3411,7 @@ class $$TripsTableTableManager extends RootTableManager<
             required int endUnix,
             required int durationSecs,
             required double ahConsumed,
+            Value<double> kwhConsumed = const Value.absent(),
             required int peakRpm,
             required double peakMotorTempC,
             required double peakInverterTempC,
@@ -3321,6 +3429,7 @@ class $$TripsTableTableManager extends RootTableManager<
             endUnix: endUnix,
             durationSecs: durationSecs,
             ahConsumed: ahConsumed,
+            kwhConsumed: kwhConsumed,
             peakRpm: peakRpm,
             peakMotorTempC: peakMotorTempC,
             peakInverterTempC: peakInverterTempC,

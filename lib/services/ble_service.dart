@@ -190,6 +190,7 @@ class BleService extends ChangeNotifier {
     _notifySub = _txChar!.onValueReceived.listen(_onNotification);
 
     _reconnectAttempts = 0;
+    lastError = null;
     _setState(BleConnectionState.connected);
 
     // Kick off sync protocol
@@ -373,6 +374,7 @@ class BleService extends ChangeNotifier {
       _pendingSessions.addAll(_parseListResponse(listResponse));
 
       if (_pendingSessions.isEmpty) {
+        await _queryTripState();
         _setState(BleConnectionState.connected);
         return;
       }
@@ -398,8 +400,19 @@ class BleService extends ChangeNotifier {
     }
 
     syncProgress = null;
-    _syncState   = _SyncState.idle;
+    await _queryTripState();
     _setState(BleConnectionState.connected);
+  }
+
+  Future<void> _queryTripState() async {
+    _syncState      = _SyncState.idle;
+    _responseWaiter = Completer<String>();
+    await _sendCommand('STATUS');
+    final statusResp = await _responseWaiter!.future
+        .timeout(const Duration(seconds: 5))
+        .catchError((_) => '');
+    _responseWaiter = null;
+    tripActive = statusResp.contains('trip=1');
   }
 
   Future<void> _downloadSession(int sessionId) async {

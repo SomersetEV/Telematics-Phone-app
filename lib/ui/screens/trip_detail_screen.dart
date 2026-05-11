@@ -154,7 +154,7 @@ class _StatsBar extends StatelessWidget {
             _divider(),
             _StatItem(
               label: 'Energy',
-              value: '${trip.ahConsumed.toStringAsFixed(1)} Ah',
+              value: '${trip.kwhConsumed.toStringAsFixed(2)} kWh',
               icon:  Icons.bolt,
             ),
             _divider(),

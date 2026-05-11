@@ -292,6 +292,7 @@ class StatsAggregator {
         date:              Value(date),
         totalDurationSecs: const Value(0),
         totalAh:           const Value(0),
+        totalKwh:          const Value(0.0),
         peakMotorTempC:    const Value(0),
         peakInverterTempC: const Value(0),
         peakBmsTempC:      const Value(0),
@@ -312,6 +313,9 @@ class StatsAggregator {
       date:              Value(date),
       totalDurationSecs: Value(durationMs ~/ 1000),
       totalAh:           Value(totalAh),
+      totalKwh:          Value(
+        records.map((r) => r.packKw.value).fold(0.0, (a, b) => a + b).abs() / 3600.0,
+      ),
       peakMotorTempC:    Value(records.map((r) => r.motorTempC.value).reduce((a, b) => a > b ? a : b)),
       peakInverterTempC: Value(records.map((r) => r.inverterTempC.value).reduce((a, b) => a > b ? a : b)),
       peakBmsTempC:      Value(records.map((r) => r.bmsTempMaxC.value).reduce((a, b) => a > b ? a : b)),
@@ -339,6 +343,9 @@ class StatsAggregator {
       endUnix:           Value(rawTrip.endUnix),
       durationSecs:      Value(rawTrip.endUnix - rawTrip.startUnix),
       ahConsumed:        Value(ahConsumed),
+      kwhConsumed:       Value(
+        tripRecords.map((r) => r.packKw.value).fold(0.0, (a, b) => a + b).abs() / 3600.0,
+      ),
       peakRpm:           Value(tripRecords.map((r) => r.motorRpm.value).reduce((a, b) => a > b ? a : b)),
       peakMotorTempC:    Value(tripRecords.map((r) => r.motorTempC.value).reduce((a, b) => a > b ? a : b)),
       peakInverterTempC: Value(tripRecords.map((r) => r.inverterTempC.value).reduce((a, b) => a > b ? a : b)),

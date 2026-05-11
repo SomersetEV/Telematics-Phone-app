@@ -39,6 +39,7 @@ class Days extends Table {
   TextColumn get date              => text()();   // YYYY-MM-DD
   IntColumn get totalDurationSecs  => integer()();
   RealColumn get totalAh           => real()();
+  RealColumn get totalKwh          => real().withDefault(const Constant(0.0))();
   RealColumn get peakMotorTempC    => real()();
   RealColumn get peakInverterTempC => real()();
   RealColumn get peakBmsTempC      => real()();
@@ -59,6 +60,7 @@ class Trips extends Table {
   IntColumn get endUnix       => integer()();
   IntColumn get durationSecs  => integer()();
   RealColumn get ahConsumed   => real()();
+  RealColumn get kwhConsumed  => real().withDefault(const Constant(0.0))();
   IntColumn get peakRpm       => integer()();
   RealColumn get peakMotorTempC    => real()();
   RealColumn get peakInverterTempC => real()();
@@ -106,7 +108,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -122,6 +124,12 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 4) {
         await customStatement('ALTER TABLE log_records ADD COLUMN pack_kw REAL NOT NULL DEFAULT 0.0');
+      }
+      if (from < 5) {
+        await customStatement('ALTER TABLE days ADD COLUMN total_kwh REAL NOT NULL DEFAULT 0.0');
+      }
+      if (from < 6) {
+        await customStatement('ALTER TABLE trips ADD COLUMN kwh_consumed REAL NOT NULL DEFAULT 0.0');
       }
     },
   );

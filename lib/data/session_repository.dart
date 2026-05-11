@@ -63,6 +63,7 @@ class SessionRepository {
             date:              Value(date),
             totalDurationSecs: Value(existing.totalDurationSecs + dayCompanion.totalDurationSecs.value),
             totalAh:           Value(existing.totalAh + dayCompanion.totalAh.value),
+            totalKwh:          Value(existing.totalKwh + dayCompanion.totalKwh.value),
             peakMotorTempC:    Value(_max(existing.peakMotorTempC,    dayCompanion.peakMotorTempC.value)),
             peakInverterTempC: Value(_max(existing.peakInverterTempC, dayCompanion.peakInverterTempC.value)),
             peakBmsTempC:      Value(_max(existing.peakBmsTempC,      dayCompanion.peakBmsTempC.value)),

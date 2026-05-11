@@ -154,7 +154,7 @@ class _DayCardState extends State<_DayCard> {
                   const SizedBox(width: 8),
                   _StatChip(
                     icon:  Icons.bolt,
-                    label: '${day.totalAh.toStringAsFixed(1)} Ah',
+                    label: '${day.totalKwh.toStringAsFixed(2)} kWh',
                   ),
                   const SizedBox(width: 8),
                   _StatChip(
@@ -291,7 +291,7 @@ class _TripTile extends StatelessWidget {
       title: Text(label, style: theme.textTheme.bodyMedium),
       subtitle: Text(
         '${_formatDuration(trip.durationSecs)}  ·  '
-        '${trip.ahConsumed.toStringAsFixed(1)} Ah  ·  '
+        '${trip.kwhConsumed.toStringAsFixed(2)} kWh  ·  '
         'Peak ${trip.peakRpm} RPM',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.outline,
