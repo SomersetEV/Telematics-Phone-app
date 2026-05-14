@@ -76,20 +76,26 @@ class CsvParser {
     final lines = csvContent.split('\n');
     if (lines.isEmpty) return ParsedSession(records: [], rawTrips: []);
 
-    // Detect format from header:
-    //   GVRET (new): "Time Stamp,ID,Extended,Bus,LEN,D1..D8"  — 13 cols, hex bytes at col 5
-    //   Legacy:      "tick_ms,can_id,dlc,b0..b7"              — 11 cols, decimal bytes at col 3
+    // Detect format from first line:
+    //   SNAP1:  "SNAP1,tick_ms,..."           — 1Hz pre-decoded snapshot (new, fast)
+    //   GVRET:  "Time Stamp,ID,Extended,..."  — raw CAN frames, hex bytes
+    //   Legacy: "tick_ms,can_id,dlc,..."      — raw CAN frames, decimal bytes
     final header = lines.first.trim();
-    final bool isGvret = header.startsWith('Time Stamp');
+
+    // Skip header row; work on data lines only
+    final dataLines = lines.skip(1).where((l) => l.trim().isNotEmpty).toList();
+    if (dataLines.isEmpty) return ParsedSession(records: [], rawTrips: []);
+
+    if (header.startsWith('SNAP1')) {
+      return _parseSnap(dataLines, syncedAtUnix);
+    }
+
+    // ── GVRET / Legacy raw-frame path ─────────────────────────────────────
+    final bool isGvret    = header.startsWith('Time Stamp');
     final int  minCols    = isGvret ? 13 : 11;
     final int  byteOffset = isGvret ? 5  : 3;
     final int  byteRadix  = isGvret ? 16 : 10;
 
-    // Skip header row
-    final dataLines = lines.skip(1).where((l) => l.trim().isNotEmpty).toList();
-    if (dataLines.isEmpty) return ParsedSession(records: [], rawTrips: []);
-
-    // ── Best-effort offset calculation ────────────────────────────────────
     // Find the last data row's tick_ms to anchor timestamps
     int maxTickMs = 0;
     for (final line in dataLines.reversed) {
@@ -102,7 +108,6 @@ class CsvParser {
     }
     final int bestEffortOffset = syncedAtUnix - (maxTickMs ~/ 1000);
 
-    // ── Parse frames and build 1Hz snapshots ──────────────────────────────
     final List<LogRecordsCompanion> records = [];
     final List<RawTrip> rawTrips            = [];
 
@@ -114,9 +119,8 @@ class CsvParser {
     List<int> currentTripIndices = [];
 
     for (final line in dataLines) {
-      // ── Trip markers ─────────────────────────────────────────────────────
       if (line.startsWith('TRIP_START')) {
-        tripStartUnix      = -1; // sentinel: assign on first data row
+        tripStartUnix      = -1;
         tripSocStart       = state.socPct;
         currentTripIndices = [];
         continue;
@@ -125,8 +129,7 @@ class CsvParser {
       if (line.startsWith('TRIP_END')) {
         if (tripStartUnix != null && tripStartUnix > 0 && currentTripIndices.isNotEmpty) {
           final lastRecord = records[currentTripIndices.last];
-          // Parse TRIP_END summary columns: duration_s, ah_used, kwh_used, soc_start%, soc_end%, peak_a
-          final endParts = line.split(',');
+          final endParts   = line.split(',');
           final int? socEnd = endParts.length > 5 ? int.tryParse(endParts[5]) : null;
           rawTrips.add(RawTrip(
             startUnix:     tripStartUnix,
@@ -142,59 +145,33 @@ class CsvParser {
         continue;
       }
 
-      // ── CAN frame row ─────────────────────────────────────────────────────
       final parts = line.split(',');
       if (parts.length < minCols) continue;
 
-      final int tickMs   = int.tryParse(parts[0]) ?? 0;
-      final int canId    = _parseHex(parts[1]);
+      final int tickMs = int.tryParse(parts[0]) ?? 0;
+      final int canId  = _parseHex(parts[1]);
       if (canId == 0) continue;
 
       final bytes = List<int>.filled(8, 0);
       for (int i = 0; i < 8; i++) {
         bytes[i] = int.tryParse(parts[byteOffset + i], radix: byteRadix) ?? 0;
       }
-
       _decodeFrame(canId, bytes, state);
 
-      // ── 1Hz snapshot emission ─────────────────────────────────────────────
       final int currentSecond = bestEffortOffset + (tickMs ~/ 1000);
       if (currentSecond > lastEmittedSecond) {
         lastEmittedSecond = currentSecond;
-        final date       = _unixToDateString(currentSecond);
-        final companion  = LogRecordsCompanion(
-          dayDate:           Value(date),
-          unixTime:          Value(currentSecond),
-          tickMs:            Value(tickMs),
-          motorRpm:          Value(state.motorRpm),
-          motorTempC:        Value(state.motorTempC),
-          inverterTempC:     Value(state.inverterTempC),
-          packCurrentA:      Value(state.packCurrentA),
-          packVoltageV:      Value(state.packVoltageV),
-          packKw:            Value(state.packKw),
-          ahUsed:            Value(state.ahUsed),
-          socPct:            Value(state.socPct),
-          bmsTempMaxC:       Value(state.bmsTempMaxC),
-          bmsTempMinC:       Value(state.bmsTempMinC),
-          cellVoltageMaxMv:  Value(state.cellVoltageMaxMv),
-          cellVoltageMinMv:  Value(state.cellVoltageMinMv),
-          packVoltageBmsMv:  Value(state.packVoltageBmsMv),
-          tripId:            const Value(null),
-        );
-
+        final companion   = _makeRecord(currentSecond, tickMs, state);
         final recordIndex = records.length;
         records.add(companion);
 
         if (tripStartUnix != null) {
-          if (tripStartUnix == -1) {
-            tripStartUnix = currentSecond;
-          }
+          if (tripStartUnix == -1) tripStartUnix = currentSecond;
           currentTripIndices.add(recordIndex);
         }
       }
     }
 
-    // Close any trip left open (e.g. power cut before TRIP_END)
     if (tripStartUnix != null && tripStartUnix > 0 && currentTripIndices.isNotEmpty) {
       final lastRecord = records[currentTripIndices.last];
       rawTrips.add(RawTrip(
@@ -252,6 +229,118 @@ class CsvParser {
         s.bmsTempMaxC = (_leUint16(b, 6) - 273).toDouble();
     }
   }
+
+  // ── SNAP1 parser ──────────────────────────────────────────────────────────
+  // Columns: tick_ms,soc_pct,pack_v_bms_mv,pack_i_ma,isa_kw_w,isa_as,
+  //          motor_rpm,motor_temp_c10,inv_temp_c10,bms_tmax_c10,bms_tmin_c10,
+  //          cell_v_max_mv,cell_v_min_mv  (13 columns)
+
+  static ParsedSession _parseSnap(List<String> dataLines, int syncedAtUnix) {
+    int maxTickMs = 0;
+    for (final line in dataLines.reversed) {
+      if (line.startsWith('TRIP_')) continue;
+      final p = line.split(',');
+      maxTickMs = int.tryParse(p[0]) ?? 0;
+      if (maxTickMs > 0) break;
+    }
+    final int offset = syncedAtUnix - (maxTickMs ~/ 1000);
+
+    final List<LogRecordsCompanion> records = [];
+    final List<RawTrip>             rawTrips = [];
+
+    int? tripStartUnix;
+    int? tripSocStart;
+    List<int> tripIndices = [];
+
+    for (final line in dataLines) {
+      if (line.startsWith('TRIP_START')) {
+        tripStartUnix = -1;
+        tripSocStart  = records.isNotEmpty ? records.last.socPct.value : 0;
+        tripIndices   = [];
+        continue;
+      }
+
+      if (line.startsWith('TRIP_END')) {
+        if (tripStartUnix != null && tripStartUnix > 0 && tripIndices.isNotEmpty) {
+          final endParts = line.split(',');
+          final int? socEnd = endParts.length > 5 ? int.tryParse(endParts[5]) : null;
+          rawTrips.add(RawTrip(
+            startUnix:     tripStartUnix,
+            endUnix:       records[tripIndices.last].unixTime.value,
+            recordIndices: List.from(tripIndices),
+            socStart:      tripSocStart,
+            socEnd:        socEnd ?? (records.isNotEmpty ? records.last.socPct.value : 0),
+          ));
+        }
+        tripStartUnix = null;
+        tripSocStart  = null;
+        tripIndices   = [];
+        continue;
+      }
+
+      final p = line.split(',');
+      if (p.length < 13) continue;
+
+      final int tickMs   = int.tryParse(p[0]) ?? 0;
+      final int unixTime = offset + (tickMs ~/ 1000);
+
+      final state = _VehicleState()
+        ..socPct           = int.tryParse(p[1])  ?? 0
+        ..packVoltageBmsMv = int.tryParse(p[2])  ?? 0
+        ..packCurrentA     = (int.tryParse(p[3])  ?? 0) / 1000.0
+        ..packKw           = (int.tryParse(p[4])  ?? 0) / 1000.0
+        ..ahUsed           = (int.tryParse(p[5])  ?? 0) / 3600.0
+        ..motorRpm         = int.tryParse(p[6])  ?? 0
+        ..motorTempC       = (int.tryParse(p[7])  ?? 0) / 10.0
+        ..inverterTempC    = (int.tryParse(p[8])  ?? 0) / 10.0
+        ..bmsTempMaxC      = (int.tryParse(p[9])  ?? 0) / 10.0
+        ..bmsTempMinC      = (int.tryParse(p[10]) ?? 0) / 10.0
+        ..cellVoltageMaxMv = int.tryParse(p[11]) ?? 0
+        ..cellVoltageMinMv = int.tryParse(p[12]) ?? 0;
+
+      final companion   = _makeRecord(unixTime, tickMs, state);
+      final recordIndex = records.length;
+      records.add(companion);
+
+      if (tripStartUnix != null) {
+        if (tripStartUnix == -1) tripStartUnix = unixTime;
+        tripIndices.add(recordIndex);
+      }
+    }
+
+    if (tripStartUnix != null && tripStartUnix > 0 && tripIndices.isNotEmpty) {
+      rawTrips.add(RawTrip(
+        startUnix:     tripStartUnix,
+        endUnix:       records[tripIndices.last].unixTime.value,
+        recordIndices: List.from(tripIndices),
+        socStart:      tripSocStart,
+        socEnd:        records.isNotEmpty ? records.last.socPct.value : 0,
+      ));
+    }
+
+    return ParsedSession(records: records, rawTrips: rawTrips);
+  }
+
+  static LogRecordsCompanion _makeRecord(int unixTime, int tickMs, _VehicleState s) =>
+      LogRecordsCompanion(
+        dayDate:          Value(_unixToDateString(unixTime)),
+        unixTime:         Value(unixTime),
+        tickMs:           Value(tickMs),
+        motorRpm:         Value(s.motorRpm),
+        motorTempC:       Value(s.motorTempC),
+        inverterTempC:    Value(s.inverterTempC),
+        packCurrentA:     Value(s.packCurrentA),
+        packVoltageV:     Value(s.packVoltageV),
+        packKw:           Value(s.packKw),
+        ahUsed:           Value(s.ahUsed),
+        socPct:           Value(s.socPct),
+        bmsTempMaxC:      Value(s.bmsTempMaxC),
+        bmsTempMinC:      Value(s.bmsTempMinC),
+        cellVoltageMaxMv: Value(s.cellVoltageMaxMv),
+        cellVoltageMinMv: Value(s.cellVoltageMinMv),
+        packVoltageBmsMv: Value(s.packVoltageBmsMv),
+        tripId:           const Value(null),
+      );
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

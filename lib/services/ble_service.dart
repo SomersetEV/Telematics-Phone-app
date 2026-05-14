@@ -452,7 +452,7 @@ class BleService extends ChangeNotifier {
 
     // Save raw CSV to device storage
     final dir     = await getApplicationDocumentsDirectory();
-    final csvPath = p.join(dir.path, 'sessions', 'session_$idStr.csv');
+    final csvPath = p.join(dir.path, 'sessions', 'snap_$idStr.csv');
     await Directory(p.dirname(csvPath)).create(recursive: true);
     await File(csvPath).writeAsString(csvContent);
 
