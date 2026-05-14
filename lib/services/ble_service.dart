@@ -77,8 +77,13 @@ class BleService extends ChangeNotifier {
   SyncProgress?      syncProgress;
   bool               tripActive      = false;
   String?            lastError;
+  String?            lastSyncResult;
+  bool               canBusActive    = false;
 
   // ── Private ────────────────────────────────────────────────────────────────
+  int      _lastCanFrameCount  = 0;
+  DateTime? _lastCanActivity;
+
   BluetoothDevice?         _device;
   BluetoothDevice?         _lastDevice;       // remembered for auto-reconnect
   BluetoothCharacteristic? _rxChar;   // we write to this
@@ -222,8 +227,11 @@ class BleService extends ChangeNotifier {
     _syncState = _SyncState.idle;
     _responseWaiter?.completeError('Disconnected');
     _responseWaiter = null;
-    tripActive   = false;
-    syncProgress = null;
+    tripActive          = false;
+    canBusActive        = false;
+    _lastCanFrameCount  = 0;
+    _lastCanActivity    = null;
+    syncProgress        = null;
 
     if (reconnect &&
         _lastDevice != null &&
@@ -320,8 +328,19 @@ class BleService extends ChangeNotifier {
 
       case _SyncState.idle:
       case _SyncState.waitingEnd:
-        // OK / ERR responses for DONE, TIME, TRIP commands
-        if (_responseWaiter != null) {
+        if (line.startsWith('CAN ')) {
+          final count = int.tryParse(line.substring(4));
+          if (count != null) {
+            if (count != _lastCanFrameCount) {
+              _lastCanFrameCount = count;
+              _lastCanActivity   = DateTime.now();
+              canBusActive       = true;
+            } else {
+              canBusActive = false;
+            }
+            notifyListeners();
+          }
+        } else if (_responseWaiter != null) {
           _responseWaiter?.complete(line);
           _responseWaiter = null;
         }
@@ -439,17 +458,31 @@ class BleService extends ChangeNotifier {
 
     // Parse and ingest into database
     final syncedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    int recordCount;
     try {
-      await _repository.ingestSession(
+      recordCount = await _repository.ingestSession(
         esp32SessionId: sessionId,
         csvContent:     csvContent,
         rawCsvPath:     csvPath,
         syncedAtUnix:   syncedAt,
       );
     } catch (e) {
-      debugPrint('Ingest $idStr failed: $e');
-      return;
+      lastSyncResult = 'Session $idStr: ingest error — $e';
+      notifyListeners();
+      return;   // don't send DONE — keep available for retry
     }
+
+    if (recordCount == 0) {
+      final allLines   = csvContent.split('\n').where((l) => l.trim().isNotEmpty).toList();
+      final dataLines  = allLines.length - 1; // minus header
+      final firstData  = allLines.length > 1 ? allLines[1] : '—';
+      final preview    = firstData.length > 60 ? firstData.substring(0, 60) : firstData;
+      lastSyncResult   = 'Session $idStr: 0 records. '
+                         '$dataLines data lines. First: "$preview"';
+    } else if (recordCount > 0) {
+      lastSyncResult = 'Session $idStr: $recordCount records synced';
+    }
+    notifyListeners();
 
     // Confirm receipt — ESP32 updates NVS last_synced
     _syncState      = _SyncState.idle;
@@ -505,10 +538,13 @@ class BleService extends ChangeNotifier {
       _syncState      = _SyncState.idle;
       _responseWaiter = Completer<String>();
       await _sendCommand('TRIP_END');
-      await _responseWaiter!.future.timeout(const Duration(seconds: 5));
+      // ESP32 waits for file close + session rotate before replying OK (up to 2s)
+      await _responseWaiter!.future.timeout(const Duration(seconds: 10));
       _responseWaiter = null;
       tripActive = false;
       notifyListeners();
+      // Sync the just-ended session immediately
+      await _runSyncProtocol();
     } catch (e) {
       lastError = 'Failed to stop trip: $e';
       notifyListeners();

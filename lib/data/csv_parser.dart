@@ -76,6 +76,15 @@ class CsvParser {
     final lines = csvContent.split('\n');
     if (lines.isEmpty) return ParsedSession(records: [], rawTrips: []);
 
+    // Detect format from header:
+    //   GVRET (new): "Time Stamp,ID,Extended,Bus,LEN,D1..D8"  — 13 cols, hex bytes at col 5
+    //   Legacy:      "tick_ms,can_id,dlc,b0..b7"              — 11 cols, decimal bytes at col 3
+    final header = lines.first.trim();
+    final bool isGvret = header.startsWith('Time Stamp');
+    final int  minCols    = isGvret ? 13 : 11;
+    final int  byteOffset = isGvret ? 5  : 3;
+    final int  byteRadix  = isGvret ? 16 : 10;
+
     // Skip header row
     final dataLines = lines.skip(1).where((l) => l.trim().isNotEmpty).toList();
     if (dataLines.isEmpty) return ParsedSession(records: [], rawTrips: []);
@@ -135,16 +144,15 @@ class CsvParser {
 
       // ── CAN frame row ─────────────────────────────────────────────────────
       final parts = line.split(',');
-      if (parts.length < 13) continue;
+      if (parts.length < minCols) continue;
 
       final int tickMs   = int.tryParse(parts[0]) ?? 0;
       final int canId    = _parseHex(parts[1]);
       if (canId == 0) continue;
 
-      // Byte array: parts[5..12] = D1..D8 (2-digit uppercase hex, no 0x prefix)
       final bytes = List<int>.filled(8, 0);
       for (int i = 0; i < 8; i++) {
-        bytes[i] = int.tryParse(parts[5 + i], radix: 16) ?? 0;
+        bytes[i] = int.tryParse(parts[byteOffset + i], radix: byteRadix) ?? 0;
       }
 
       _decodeFrame(canId, bytes, state);
@@ -218,17 +226,17 @@ class CsvParser {
         s.motorTempC    = _fahrenheitToCelsius(b[1]);
         s.inverterTempC = _fahrenheitToCelsius(b[2]);
 
-      case 0x521: // ISA shunt — pack current (mA, big-endian int32 bytes 2-5)
-        s.packCurrentA = _beInt32(b, 2) / 1000.0;
+      case 0x521: // ISA shunt — pack current (mA, little-endian int32 bytes 2-5)
+        s.packCurrentA = _leInt32(b, 2) / 1000.0;
 
-      case 0x522: // ISA shunt — pack voltage (mV, big-endian int32 bytes 2-5)
-        s.packVoltageV = _beInt32(b, 2) / 1000.0;
+      case 0x522: // ISA shunt — pack voltage (mV, little-endian int32 bytes 2-5)
+        s.packVoltageV = _leInt32(b, 2) / 1000.0;
 
-      case 0x526: // ISA shunt — power (W, big-endian int32 bytes 2-5)
-        s.packKw = _beInt32(b, 2) / 1000.0;
+      case 0x526: // ISA shunt — power (W, little-endian int32 bytes 2-5)
+        s.packKw = _leInt32(b, 2) / 1000.0;
 
-      case 0x527: // ISA shunt — amp-seconds (big-endian int32 bytes 2-5)
-        s.ahUsed = _beInt32(b, 2) / 3600.0;
+      case 0x527: // ISA shunt — amp-seconds (little-endian int32 bytes 2-5)
+        s.ahUsed = _leInt32(b, 2) / 3600.0;
 
       case 0x355: // M3 BMS — state of charge
         s.socPct = b[0];
@@ -247,13 +255,12 @@ class CsvParser {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  // Big-endian signed int32 from bytes[offset..offset+3]
-  static int _beInt32(List<int> b, int offset) {
-    final unsigned = (b[offset] << 24) |
-                     (b[offset + 1] << 16) |
-                     (b[offset + 2] << 8) |
-                      b[offset + 3];
-    // Sign-extend to Dart int (already 64-bit, but mask to 32-bit first)
+  // Little-endian signed int32 from bytes[offset..offset+3] (ISA IVT-S format)
+  static int _leInt32(List<int> b, int offset) {
+    final unsigned =  b[offset] |
+                     (b[offset + 1] << 8) |
+                     (b[offset + 2] << 16) |
+                     (b[offset + 3] << 24);
     final masked = unsigned & 0xFFFFFFFF;
     return masked >= 0x80000000 ? masked - 0x100000000 : masked;
   }

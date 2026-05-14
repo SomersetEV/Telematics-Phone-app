@@ -1,5 +1,7 @@
 // lib/ui/screens/connection_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -87,7 +89,23 @@ class _StatusPanel extends StatelessWidget {
               ),
             ),
 
-          const SizedBox(height: 32),
+          if (ble.lastSyncResult != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                ble.lastSyncResult!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          _CanIndicator(active: ble.canBusActive),
+
+          const SizedBox(height: 24),
 
           // Connect / Disconnect button
           _ConnectButton(ble: ble),
@@ -217,6 +235,64 @@ class _SyncProgressPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── CAN bus indicator ─────────────────────────────────────────────────────────
+
+class _CanIndicator extends StatefulWidget {
+  final bool active;
+  const _CanIndicator({required this.active});
+
+  @override
+  State<_CanIndicator> createState() => _CanIndicatorState();
+}
+
+class _CanIndicatorState extends State<_CanIndicator> {
+  bool   _lit   = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() => _lit = !_lit);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active  = widget.active;
+    final colour  = active ? Colors.greenAccent : Colors.grey;
+    final opacity = active ? (_lit ? 1.0 : 0.15) : 0.35;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedOpacity(
+          opacity:  opacity,
+          duration: const Duration(milliseconds: 150),
+          child: Container(
+            width:  10,
+            height: 10,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: colour),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'CAN bus',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: colour.withValues(alpha: active ? 1.0 : 0.5),
+          ),
+        ),
+      ],
     );
   }
 }

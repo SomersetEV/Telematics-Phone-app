@@ -18,17 +18,16 @@ class SessionRepository {
       db.isSessionSynced(esp32SessionId);
 
   /// Full pipeline: parse CSV, insert all records, build day and trip summaries.
-  ///
-  /// Called once per session after BLE transfer completes.
-  /// Idempotent — if session already exists, returns without re-inserting.
-  Future<void> ingestSession({
+  /// Returns the number of log records inserted, or 0 if nothing was parsed.
+  /// Idempotent — if session already exists, returns -1 without re-inserting.
+  Future<int> ingestSession({
     required int esp32SessionId,
     required String csvContent,
     required String rawCsvPath,
     required int syncedAtUnix,
   }) async {
     // Guard against double-ingestion
-    if (await isAlreadySynced(esp32SessionId)) return;
+    if (await isAlreadySynced(esp32SessionId)) return -1;
 
     // Parse CSV into records and raw trip markers
     final parsed = CsvParser.parse(
@@ -37,7 +36,7 @@ class SessionRepository {
       syncedAtUnix:     syncedAtUnix,
     );
 
-    if (parsed.records.isEmpty) return;
+    if (parsed.records.isEmpty) return 0;
 
     // Group records by date for day-level processing
     final recordsByDate = groupBy(parsed.records, (r) => r.dayDate.value);
@@ -116,6 +115,8 @@ class SessionRepository {
         bestEffortOffsetSeconds:  const Value(0),
       ));
     });
+
+    return parsed.records.length;
   }
 
   double _max(double a, double b) => a > b ? a : b;
