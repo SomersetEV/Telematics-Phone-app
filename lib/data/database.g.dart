@@ -33,9 +33,20 @@ class $SyncSessionsTable extends SyncSessions
   late final GeneratedColumn<int> bestEffortOffsetSeconds =
       GeneratedColumn<int>('best_effort_offset_seconds', aliasedName, false,
           type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _recordDateMeta =
+      const VerificationMeta('recordDate');
   @override
-  List<GeneratedColumn> get $columns =>
-      [esp32SessionId, syncedAt, rawCsvPath, bestEffortOffsetSeconds];
+  late final GeneratedColumn<String> recordDate = GeneratedColumn<String>(
+      'record_date', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        esp32SessionId,
+        syncedAt,
+        rawCsvPath,
+        bestEffortOffsetSeconds,
+        recordDate
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -75,6 +86,12 @@ class $SyncSessionsTable extends SyncSessions
     } else if (isInserting) {
       context.missing(_bestEffortOffsetSecondsMeta);
     }
+    if (data.containsKey('record_date')) {
+      context.handle(
+          _recordDateMeta,
+          recordDate.isAcceptableOrUnknown(
+              data['record_date']!, _recordDateMeta));
+    }
     return context;
   }
 
@@ -93,6 +110,8 @@ class $SyncSessionsTable extends SyncSessions
       bestEffortOffsetSeconds: attachedDatabase.typeMapping.read(
           DriftSqlType.int,
           data['${effectivePrefix}best_effort_offset_seconds'])!,
+      recordDate: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}record_date']),
     );
   }
 
@@ -107,11 +126,13 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
   final DateTime syncedAt;
   final String rawCsvPath;
   final int bestEffortOffsetSeconds;
+  final String? recordDate;
   const SyncSession(
       {required this.esp32SessionId,
       required this.syncedAt,
       required this.rawCsvPath,
-      required this.bestEffortOffsetSeconds});
+      required this.bestEffortOffsetSeconds,
+      this.recordDate});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -119,6 +140,9 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
     map['synced_at'] = Variable<DateTime>(syncedAt);
     map['raw_csv_path'] = Variable<String>(rawCsvPath);
     map['best_effort_offset_seconds'] = Variable<int>(bestEffortOffsetSeconds);
+    if (!nullToAbsent || recordDate != null) {
+      map['record_date'] = Variable<String>(recordDate);
+    }
     return map;
   }
 
@@ -128,6 +152,9 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
       syncedAt: Value(syncedAt),
       rawCsvPath: Value(rawCsvPath),
       bestEffortOffsetSeconds: Value(bestEffortOffsetSeconds),
+      recordDate: recordDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(recordDate),
     );
   }
 
@@ -140,6 +167,7 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
       rawCsvPath: serializer.fromJson<String>(json['rawCsvPath']),
       bestEffortOffsetSeconds:
           serializer.fromJson<int>(json['bestEffortOffsetSeconds']),
+      recordDate: serializer.fromJson<String?>(json['recordDate']),
     );
   }
   @override
@@ -151,6 +179,7 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
       'rawCsvPath': serializer.toJson<String>(rawCsvPath),
       'bestEffortOffsetSeconds':
           serializer.toJson<int>(bestEffortOffsetSeconds),
+      'recordDate': serializer.toJson<String?>(recordDate),
     };
   }
 
@@ -158,13 +187,15 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
           {int? esp32SessionId,
           DateTime? syncedAt,
           String? rawCsvPath,
-          int? bestEffortOffsetSeconds}) =>
+          int? bestEffortOffsetSeconds,
+          Value<String?> recordDate = const Value.absent()}) =>
       SyncSession(
         esp32SessionId: esp32SessionId ?? this.esp32SessionId,
         syncedAt: syncedAt ?? this.syncedAt,
         rawCsvPath: rawCsvPath ?? this.rawCsvPath,
         bestEffortOffsetSeconds:
             bestEffortOffsetSeconds ?? this.bestEffortOffsetSeconds,
+        recordDate: recordDate.present ? recordDate.value : this.recordDate,
       );
   SyncSession copyWithCompanion(SyncSessionsCompanion data) {
     return SyncSession(
@@ -177,6 +208,8 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
       bestEffortOffsetSeconds: data.bestEffortOffsetSeconds.present
           ? data.bestEffortOffsetSeconds.value
           : this.bestEffortOffsetSeconds,
+      recordDate:
+          data.recordDate.present ? data.recordDate.value : this.recordDate,
     );
   }
 
@@ -186,14 +219,15 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
           ..write('esp32SessionId: $esp32SessionId, ')
           ..write('syncedAt: $syncedAt, ')
           ..write('rawCsvPath: $rawCsvPath, ')
-          ..write('bestEffortOffsetSeconds: $bestEffortOffsetSeconds')
+          ..write('bestEffortOffsetSeconds: $bestEffortOffsetSeconds, ')
+          ..write('recordDate: $recordDate')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
-      esp32SessionId, syncedAt, rawCsvPath, bestEffortOffsetSeconds);
+  int get hashCode => Object.hash(esp32SessionId, syncedAt, rawCsvPath,
+      bestEffortOffsetSeconds, recordDate);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -201,7 +235,8 @@ class SyncSession extends DataClass implements Insertable<SyncSession> {
           other.esp32SessionId == this.esp32SessionId &&
           other.syncedAt == this.syncedAt &&
           other.rawCsvPath == this.rawCsvPath &&
-          other.bestEffortOffsetSeconds == this.bestEffortOffsetSeconds);
+          other.bestEffortOffsetSeconds == this.bestEffortOffsetSeconds &&
+          other.recordDate == this.recordDate);
 }
 
 class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
@@ -209,17 +244,20 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
   final Value<DateTime> syncedAt;
   final Value<String> rawCsvPath;
   final Value<int> bestEffortOffsetSeconds;
+  final Value<String?> recordDate;
   const SyncSessionsCompanion({
     this.esp32SessionId = const Value.absent(),
     this.syncedAt = const Value.absent(),
     this.rawCsvPath = const Value.absent(),
     this.bestEffortOffsetSeconds = const Value.absent(),
+    this.recordDate = const Value.absent(),
   });
   SyncSessionsCompanion.insert({
     this.esp32SessionId = const Value.absent(),
     required DateTime syncedAt,
     required String rawCsvPath,
     required int bestEffortOffsetSeconds,
+    this.recordDate = const Value.absent(),
   })  : syncedAt = Value(syncedAt),
         rawCsvPath = Value(rawCsvPath),
         bestEffortOffsetSeconds = Value(bestEffortOffsetSeconds);
@@ -228,6 +266,7 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
     Expression<DateTime>? syncedAt,
     Expression<String>? rawCsvPath,
     Expression<int>? bestEffortOffsetSeconds,
+    Expression<String>? recordDate,
   }) {
     return RawValuesInsertable({
       if (esp32SessionId != null) 'esp32_session_id': esp32SessionId,
@@ -235,6 +274,7 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
       if (rawCsvPath != null) 'raw_csv_path': rawCsvPath,
       if (bestEffortOffsetSeconds != null)
         'best_effort_offset_seconds': bestEffortOffsetSeconds,
+      if (recordDate != null) 'record_date': recordDate,
     });
   }
 
@@ -242,13 +282,15 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
       {Value<int>? esp32SessionId,
       Value<DateTime>? syncedAt,
       Value<String>? rawCsvPath,
-      Value<int>? bestEffortOffsetSeconds}) {
+      Value<int>? bestEffortOffsetSeconds,
+      Value<String?>? recordDate}) {
     return SyncSessionsCompanion(
       esp32SessionId: esp32SessionId ?? this.esp32SessionId,
       syncedAt: syncedAt ?? this.syncedAt,
       rawCsvPath: rawCsvPath ?? this.rawCsvPath,
       bestEffortOffsetSeconds:
           bestEffortOffsetSeconds ?? this.bestEffortOffsetSeconds,
+      recordDate: recordDate ?? this.recordDate,
     );
   }
 
@@ -268,6 +310,9 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
       map['best_effort_offset_seconds'] =
           Variable<int>(bestEffortOffsetSeconds.value);
     }
+    if (recordDate.present) {
+      map['record_date'] = Variable<String>(recordDate.value);
+    }
     return map;
   }
 
@@ -277,7 +322,8 @@ class SyncSessionsCompanion extends UpdateCompanion<SyncSession> {
           ..write('esp32SessionId: $esp32SessionId, ')
           ..write('syncedAt: $syncedAt, ')
           ..write('rawCsvPath: $rawCsvPath, ')
-          ..write('bestEffortOffsetSeconds: $bestEffortOffsetSeconds')
+          ..write('bestEffortOffsetSeconds: $bestEffortOffsetSeconds, ')
+          ..write('recordDate: $recordDate')
           ..write(')'))
         .toString();
   }
@@ -2453,6 +2499,7 @@ typedef $$SyncSessionsTableCreateCompanionBuilder = SyncSessionsCompanion
   required DateTime syncedAt,
   required String rawCsvPath,
   required int bestEffortOffsetSeconds,
+  Value<String?> recordDate,
 });
 typedef $$SyncSessionsTableUpdateCompanionBuilder = SyncSessionsCompanion
     Function({
@@ -2460,6 +2507,7 @@ typedef $$SyncSessionsTableUpdateCompanionBuilder = SyncSessionsCompanion
   Value<DateTime> syncedAt,
   Value<String> rawCsvPath,
   Value<int> bestEffortOffsetSeconds,
+  Value<String?> recordDate,
 });
 
 class $$SyncSessionsTableFilterComposer
@@ -2484,6 +2532,9 @@ class $$SyncSessionsTableFilterComposer
   ColumnFilters<int> get bestEffortOffsetSeconds => $composableBuilder(
       column: $table.bestEffortOffsetSeconds,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get recordDate => $composableBuilder(
+      column: $table.recordDate, builder: (column) => ColumnFilters(column));
 }
 
 class $$SyncSessionsTableOrderingComposer
@@ -2508,6 +2559,9 @@ class $$SyncSessionsTableOrderingComposer
   ColumnOrderings<int> get bestEffortOffsetSeconds => $composableBuilder(
       column: $table.bestEffortOffsetSeconds,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get recordDate => $composableBuilder(
+      column: $table.recordDate, builder: (column) => ColumnOrderings(column));
 }
 
 class $$SyncSessionsTableAnnotationComposer
@@ -2530,6 +2584,9 @@ class $$SyncSessionsTableAnnotationComposer
 
   GeneratedColumn<int> get bestEffortOffsetSeconds => $composableBuilder(
       column: $table.bestEffortOffsetSeconds, builder: (column) => column);
+
+  GeneratedColumn<String> get recordDate => $composableBuilder(
+      column: $table.recordDate, builder: (column) => column);
 }
 
 class $$SyncSessionsTableTableManager extends RootTableManager<
@@ -2562,24 +2619,28 @@ class $$SyncSessionsTableTableManager extends RootTableManager<
             Value<DateTime> syncedAt = const Value.absent(),
             Value<String> rawCsvPath = const Value.absent(),
             Value<int> bestEffortOffsetSeconds = const Value.absent(),
+            Value<String?> recordDate = const Value.absent(),
           }) =>
               SyncSessionsCompanion(
             esp32SessionId: esp32SessionId,
             syncedAt: syncedAt,
             rawCsvPath: rawCsvPath,
             bestEffortOffsetSeconds: bestEffortOffsetSeconds,
+            recordDate: recordDate,
           ),
           createCompanionCallback: ({
             Value<int> esp32SessionId = const Value.absent(),
             required DateTime syncedAt,
             required String rawCsvPath,
             required int bestEffortOffsetSeconds,
+            Value<String?> recordDate = const Value.absent(),
           }) =>
               SyncSessionsCompanion.insert(
             esp32SessionId: esp32SessionId,
             syncedAt: syncedAt,
             rawCsvPath: rawCsvPath,
             bestEffortOffsetSeconds: bestEffortOffsetSeconds,
+            recordDate: recordDate,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

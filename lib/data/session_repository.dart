@@ -113,6 +113,7 @@ class SessionRepository {
         syncedAt:                 Value(DateTime.fromMillisecondsSinceEpoch(syncedAtUnix * 1000)),
         rawCsvPath:               Value(rawCsvPath),
         bestEffortOffsetSeconds:  const Value(0),
+        recordDate:               Value(parsed.records.first.dayDate.value),
       ));
     });
 

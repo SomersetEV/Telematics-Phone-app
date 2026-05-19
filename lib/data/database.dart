@@ -29,6 +29,7 @@ class SyncSessions extends Table {
   IntColumn get bestEffortOffsetSeconds => integer()();  // unix - tick_s at sync time
   // bestEffortOffsetSeconds used to reconstruct timestamps for records
   // where unix_offset was not set during recording (phone never connected that session)
+  TextColumn get recordDate => text().nullable()();     // YYYY-MM-DD, date of first record
 
   @override
   Set<Column> get primaryKey => {esp32SessionId};
@@ -108,7 +109,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -131,6 +132,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6) {
         await customStatement('ALTER TABLE trips ADD COLUMN kwh_consumed REAL NOT NULL DEFAULT 0.0');
       }
+      if (from < 7) {
+        await customStatement('ALTER TABLE sync_sessions ADD COLUMN record_date TEXT');
+      }
     },
   );
 
@@ -142,6 +146,9 @@ class AppDatabase extends _$AppDatabase {
   Future<List<SyncSession>> getSessionsForDay(String date) async {
     final all = await getAllSyncSessions();
     return all.where((s) {
+      // Use recordDate (date of actual CAN records) when available.
+      // Fall back to syncedAt for sessions ingested before schema v7.
+      if (s.recordDate != null) return s.recordDate == date;
       final dt = s.syncedAt;
       final d = '${dt.year}-'
                 '${dt.month.toString().padLeft(2, '0')}-'
