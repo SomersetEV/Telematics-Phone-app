@@ -77,7 +77,7 @@ class _StatusPanel extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          if (ble.lastError != null)
+          if (ble.lastError != null) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Text(
@@ -88,6 +88,16 @@ class _StatusPanel extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
+            if (ble.connectionState == BleConnectionState.connected)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: TextButton.icon(
+                  onPressed: ble.retrySync,
+                  icon:  const Icon(Icons.sync, size: 16),
+                  label: const Text('Retry Sync'),
+                ),
+              ),
+          ],
 
           if (ble.lastSyncResult != null)
             Padding(
