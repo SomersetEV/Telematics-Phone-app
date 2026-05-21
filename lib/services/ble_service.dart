@@ -370,6 +370,14 @@ class BleService extends ChangeNotifier {
 
   // ── Sync protocol ──────────────────────────────────────────────────────────
 
+  Future<void> retrySync() async {
+    if (connectionState != BleConnectionState.connected) return;
+    lastError = null;
+    lastSyncResult = null;
+    notifyListeners();
+    await _runSyncProtocol();
+  }
+
   Future<void> _runSyncProtocol() async {
     _setState(BleConnectionState.syncing);
 
@@ -383,14 +391,23 @@ class BleService extends ChangeNotifier {
           .catchError((_) => 'timeout');  // TIME failure is non-fatal
       _responseWaiter = null;
 
-      // 2. Request session list
-      final listResponse = await _sendAndWait(
-        'LIST',
-        _SyncState.waitingList,
-        timeout: const Duration(seconds: 10),
-      );
+      // 2. Request session list — retry up to 2 times if the ESP32 is slow
+      String? listResponse;
+      for (int attempt = 1; attempt <= 3; attempt++) {
+        try {
+          listResponse = await _sendAndWait(
+            'LIST',
+            _SyncState.waitingList,
+            timeout: const Duration(seconds: 30),
+          );
+          break;
+        } on TimeoutException {
+          if (attempt == 3) rethrow;
+          await Future.delayed(const Duration(seconds: 2));
+        }
+      }
       _pendingSessions.clear();
-      _pendingSessions.addAll(_parseListResponse(listResponse));
+      _pendingSessions.addAll(_parseListResponse(listResponse!));
 
       if (_pendingSessions.isEmpty) {
         await _queryTripState();
