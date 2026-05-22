@@ -443,12 +443,17 @@ class BleService extends ChangeNotifier {
   Future<void> _queryTripState() async {
     _syncState      = _SyncState.idle;
     _responseWaiter = Completer<String>();
-    await _sendCommand('STATUS');
-    final statusResp = await _responseWaiter!.future
-        .timeout(const Duration(seconds: 5))
-        .catchError((_) => '');
-    _responseWaiter = null;
-    tripActive = statusResp.contains('trip=1');
+    try {
+      await _sendCommand('STATUS');
+      final statusResp = await _responseWaiter!.future
+          .timeout(const Duration(seconds: 5))
+          .catchError((_) => '');
+      tripActive = statusResp.contains('trip=1');
+    } catch (_) {
+      // Connection dropped before STATUS could be sent — leave tripActive as false
+    } finally {
+      _responseWaiter = null;
+    }
   }
 
   Future<void> _downloadSession(int sessionId) async {
