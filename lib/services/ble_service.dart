@@ -3,7 +3,7 @@
 // Handles everything BLE-related:
 //   - Scanning for SomersetEV-Tractor
 //   - Connecting and MTU negotiation
-//   - Sync protocol (TIME → LIST → GET → DONE)
+//   - Sync protocol (TIME → LIST → SUMMARY → DONE)
 //   - TRIP_START / TRIP_END commands
 //
 // Extends ChangeNotifier so UI can watch connection state and sync progress.
@@ -11,16 +11,12 @@
 // Incoming data handling:
 //   All ESP32 responses arrive as BLE notifications on the TX characteristic.
 //   They are buffered into a StringBuffer and processed line by line.
-//   File content (between DATA header and END marker) is accumulated separately.
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 
 import '../data/session_repository.dart';
 
@@ -65,7 +61,7 @@ class SyncProgress {
 
 // ── Internal protocol state ──────────────────────────────────────────────────
 
-enum _SyncState { idle, waitingList, waitingData, receivingFile, waitingEnd }
+enum _SyncState { idle, waitingList, waitingJob }
 
 class BleService extends ChangeNotifier {
   final SessionRepository _repository;
@@ -101,10 +97,6 @@ class BleService extends ChangeNotifier {
   // Sync protocol state machine
   _SyncState         _syncState     = _SyncState.idle;
   Completer<String>? _responseWaiter;  // resolves when a control line arrives
-
-  // File transfer state
-  int            _expectedFileSize = 0;
-  final StringBuffer _fileBuffer   = StringBuffer();
 
   // Sessions to sync — populated from LIST response
   final List<int> _pendingSessions = [];
@@ -222,7 +214,6 @@ class BleService extends ChangeNotifier {
     _txChar = null;
     _device = null;
     _incomingBuffer.clear();
-    _fileBuffer.clear();
     _pendingSessions.clear();
     _syncState = _SyncState.idle;
     _responseWaiter?.completeError('Disconnected');
@@ -287,47 +278,15 @@ class BleService extends ChangeNotifier {
         }
         break;
 
-      case _SyncState.waitingData:
-        if (line.startsWith('DATA')) {
-          // "DATA 0001 123456"
-          final parts = line.split(' ');
-          if (parts.length >= 3) {
-            _expectedFileSize    = int.tryParse(parts[2]) ?? 0;
-            _fileBuffer.clear();
-            _syncState = _SyncState.receivingFile;
-          }
-        } else if (line.startsWith('ERR')) {
-          _responseWaiter?.completeError(line);
+      case _SyncState.waitingJob:
+        if (line.startsWith('JOB ') || line.startsWith('ERR')) {
+          _responseWaiter?.complete(line);
           _responseWaiter = null;
           _syncState = _SyncState.idle;
         }
         break;
 
-      case _SyncState.receivingFile:
-        // Lines between DATA and END are file content
-        if (line.startsWith('END')) {
-          // File complete — resolve the waiter with accumulated content
-          _syncState = _SyncState.waitingEnd;
-          _responseWaiter?.complete(_fileBuffer.toString());
-          _responseWaiter = null;
-        } else {
-          _fileBuffer.writeln(line);
-          // Update progress
-          final received = _fileBuffer.length;
-          if (syncProgress != null) {
-            syncProgress = SyncProgress(
-              currentSession: syncProgress!.currentSession,
-              totalSessions:  syncProgress!.totalSessions,
-              bytesReceived:  received,
-              totalBytes:     _expectedFileSize,
-            );
-            notifyListeners();
-          }
-        }
-        break;
-
       case _SyncState.idle:
-      case _SyncState.waitingEnd:
         if (line.startsWith('CAN ')) {
           final count = int.tryParse(line.substring(4));
           if (count != null) {
@@ -428,7 +387,7 @@ class BleService extends ChangeNotifier {
         );
         notifyListeners();
 
-        await _downloadSession(sessionId);
+        await _fetchJobSummary(sessionId);
       }
 
     } catch (e) {
@@ -451,36 +410,38 @@ class BleService extends ChangeNotifier {
     tripActive = statusResp.contains('trip=1');
   }
 
-  Future<void> _downloadSession(int sessionId) async {
+  Future<void> _fetchJobSummary(int sessionId) async {
     final idStr = sessionId.toString().padLeft(4, '0');
 
-    // Send GET and wait for full file (resolves when END marker arrives)
-    String csvContent;
+    String response;
     try {
-      csvContent = await _sendAndWait(
-        'GET $sessionId',
-        _SyncState.waitingData,
-        timeout: const Duration(minutes: 2),
+      response = await _sendAndWait(
+        'SUMMARY $sessionId',
+        _SyncState.waitingJob,
+        timeout: const Duration(seconds: 10),
       );
     } catch (e) {
-      debugPrint('GET $idStr failed: $e');
+      debugPrint('SUMMARY $idStr failed: $e');
       return;
     }
 
-    // Save raw CSV to device storage
-    final dir     = await getApplicationDocumentsDirectory();
-    final csvPath = p.join(dir.path, 'sessions', 'snap_$idStr.csv');
-    await Directory(p.dirname(csvPath)).create(recursive: true);
-    await File(csvPath).writeAsString(csvContent);
+    if (response.startsWith('ERR')) {
+      // Empty session (no completed trip) — confirm to clear from ESP32 NVS
+      _syncState      = _SyncState.idle;
+      _responseWaiter = Completer<String>();
+      await _sendCommand('DONE $sessionId');
+      await _responseWaiter!.future
+          .timeout(const Duration(seconds: 5))
+          .catchError((_) => 'timeout');
+      _responseWaiter = null;
+      return;
+    }
 
-    // Parse and ingest into database
     final syncedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    int recordCount;
     try {
-      recordCount = await _repository.ingestSession(
+      await _repository.ingestJobSummary(
         esp32SessionId: sessionId,
-        csvContent:     csvContent,
-        rawCsvPath:     csvPath,
+        jobLine:        response,
         syncedAtUnix:   syncedAt,
       );
     } catch (e) {
@@ -489,16 +450,7 @@ class BleService extends ChangeNotifier {
       return;   // don't send DONE — keep available for retry
     }
 
-    if (recordCount == 0) {
-      final allLines   = csvContent.split('\n').where((l) => l.trim().isNotEmpty).toList();
-      final dataLines  = allLines.length - 1; // minus header
-      final firstData  = allLines.length > 1 ? allLines[1] : '—';
-      final preview    = firstData.length > 60 ? firstData.substring(0, 60) : firstData;
-      lastSyncResult   = 'Session $idStr: 0 records. '
-                         '$dataLines data lines. First: "$preview"';
-    } else if (recordCount > 0) {
-      lastSyncResult = 'Session $idStr: $recordCount records synced';
-    }
+    lastSyncResult = 'Session $idStr: synced';
     notifyListeners();
 
     // Confirm receipt — ESP32 updates NVS last_synced
