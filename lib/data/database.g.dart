@@ -1744,6 +1744,14 @@ class $LogRecordsTable extends LogRecords
   late final GeneratedColumn<int> packVoltageBmsMv = GeneratedColumn<int>(
       'pack_voltage_bms_mv', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _chargerTempCMeta =
+      const VerificationMeta('chargerTempC');
+  @override
+  late final GeneratedColumn<double> chargerTempC = GeneratedColumn<double>(
+      'charger_temp_c', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
   static const VerificationMeta _tripIdMeta = const VerificationMeta('tripId');
   @override
   late final GeneratedColumn<int> tripId = GeneratedColumn<int>(
@@ -1771,6 +1779,7 @@ class $LogRecordsTable extends LogRecords
         cellVoltageMaxMv,
         cellVoltageMinMv,
         packVoltageBmsMv,
+        chargerTempC,
         tripId
       ];
   @override
@@ -1896,6 +1905,12 @@ class $LogRecordsTable extends LogRecords
     } else if (isInserting) {
       context.missing(_packVoltageBmsMvMeta);
     }
+    if (data.containsKey('charger_temp_c')) {
+      context.handle(
+          _chargerTempCMeta,
+          chargerTempC.isAcceptableOrUnknown(
+              data['charger_temp_c']!, _chargerTempCMeta));
+    }
     if (data.containsKey('trip_id')) {
       context.handle(_tripIdMeta,
           tripId.isAcceptableOrUnknown(data['trip_id']!, _tripIdMeta));
@@ -1943,6 +1958,8 @@ class $LogRecordsTable extends LogRecords
           DriftSqlType.int, data['${effectivePrefix}cell_voltage_min_mv'])!,
       packVoltageBmsMv: attachedDatabase.typeMapping.read(
           DriftSqlType.int, data['${effectivePrefix}pack_voltage_bms_mv'])!,
+      chargerTempC: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}charger_temp_c'])!,
       tripId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}trip_id']),
     );
@@ -1972,6 +1989,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
   final int cellVoltageMaxMv;
   final int cellVoltageMinMv;
   final int packVoltageBmsMv;
+  final double chargerTempC;
   final int? tripId;
   const LogRecord(
       {required this.id,
@@ -1991,6 +2009,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       required this.cellVoltageMaxMv,
       required this.cellVoltageMinMv,
       required this.packVoltageBmsMv,
+      required this.chargerTempC,
       this.tripId});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2012,6 +2031,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
     map['cell_voltage_max_mv'] = Variable<int>(cellVoltageMaxMv);
     map['cell_voltage_min_mv'] = Variable<int>(cellVoltageMinMv);
     map['pack_voltage_bms_mv'] = Variable<int>(packVoltageBmsMv);
+    map['charger_temp_c'] = Variable<double>(chargerTempC);
     if (!nullToAbsent || tripId != null) {
       map['trip_id'] = Variable<int>(tripId);
     }
@@ -2037,6 +2057,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       cellVoltageMaxMv: Value(cellVoltageMaxMv),
       cellVoltageMinMv: Value(cellVoltageMinMv),
       packVoltageBmsMv: Value(packVoltageBmsMv),
+      chargerTempC: Value(chargerTempC),
       tripId:
           tripId == null && nullToAbsent ? const Value.absent() : Value(tripId),
     );
@@ -2063,6 +2084,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       cellVoltageMaxMv: serializer.fromJson<int>(json['cellVoltageMaxMv']),
       cellVoltageMinMv: serializer.fromJson<int>(json['cellVoltageMinMv']),
       packVoltageBmsMv: serializer.fromJson<int>(json['packVoltageBmsMv']),
+      chargerTempC: serializer.fromJson<double>(json['chargerTempC']),
       tripId: serializer.fromJson<int?>(json['tripId']),
     );
   }
@@ -2087,6 +2109,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       'cellVoltageMaxMv': serializer.toJson<int>(cellVoltageMaxMv),
       'cellVoltageMinMv': serializer.toJson<int>(cellVoltageMinMv),
       'packVoltageBmsMv': serializer.toJson<int>(packVoltageBmsMv),
+      'chargerTempC': serializer.toJson<double>(chargerTempC),
       'tripId': serializer.toJson<int?>(tripId),
     };
   }
@@ -2109,6 +2132,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           int? cellVoltageMaxMv,
           int? cellVoltageMinMv,
           int? packVoltageBmsMv,
+          double? chargerTempC,
           Value<int?> tripId = const Value.absent()}) =>
       LogRecord(
         id: id ?? this.id,
@@ -2128,6 +2152,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
         cellVoltageMaxMv: cellVoltageMaxMv ?? this.cellVoltageMaxMv,
         cellVoltageMinMv: cellVoltageMinMv ?? this.cellVoltageMinMv,
         packVoltageBmsMv: packVoltageBmsMv ?? this.packVoltageBmsMv,
+        chargerTempC: chargerTempC ?? this.chargerTempC,
         tripId: tripId.present ? tripId.value : this.tripId,
       );
   LogRecord copyWithCompanion(LogRecordsCompanion data) {
@@ -2164,6 +2189,9 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       packVoltageBmsMv: data.packVoltageBmsMv.present
           ? data.packVoltageBmsMv.value
           : this.packVoltageBmsMv,
+      chargerTempC: data.chargerTempC.present
+          ? data.chargerTempC.value
+          : this.chargerTempC,
       tripId: data.tripId.present ? data.tripId.value : this.tripId,
     );
   }
@@ -2188,6 +2216,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           ..write('cellVoltageMaxMv: $cellVoltageMaxMv, ')
           ..write('cellVoltageMinMv: $cellVoltageMinMv, ')
           ..write('packVoltageBmsMv: $packVoltageBmsMv, ')
+          ..write('chargerTempC: $chargerTempC, ')
           ..write('tripId: $tripId')
           ..write(')'))
         .toString();
@@ -2212,6 +2241,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
       cellVoltageMaxMv,
       cellVoltageMinMv,
       packVoltageBmsMv,
+      chargerTempC,
       tripId);
   @override
   bool operator ==(Object other) =>
@@ -2234,6 +2264,7 @@ class LogRecord extends DataClass implements Insertable<LogRecord> {
           other.cellVoltageMaxMv == this.cellVoltageMaxMv &&
           other.cellVoltageMinMv == this.cellVoltageMinMv &&
           other.packVoltageBmsMv == this.packVoltageBmsMv &&
+          other.chargerTempC == this.chargerTempC &&
           other.tripId == this.tripId);
 }
 
@@ -2255,6 +2286,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
   final Value<int> cellVoltageMaxMv;
   final Value<int> cellVoltageMinMv;
   final Value<int> packVoltageBmsMv;
+  final Value<double> chargerTempC;
   final Value<int?> tripId;
   const LogRecordsCompanion({
     this.id = const Value.absent(),
@@ -2274,6 +2306,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     this.cellVoltageMaxMv = const Value.absent(),
     this.cellVoltageMinMv = const Value.absent(),
     this.packVoltageBmsMv = const Value.absent(),
+    this.chargerTempC = const Value.absent(),
     this.tripId = const Value.absent(),
   });
   LogRecordsCompanion.insert({
@@ -2294,6 +2327,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     required int cellVoltageMaxMv,
     required int cellVoltageMinMv,
     required int packVoltageBmsMv,
+    this.chargerTempC = const Value.absent(),
     this.tripId = const Value.absent(),
   })  : dayDate = Value(dayDate),
         unixTime = Value(unixTime),
@@ -2327,6 +2361,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     Expression<int>? cellVoltageMaxMv,
     Expression<int>? cellVoltageMinMv,
     Expression<int>? packVoltageBmsMv,
+    Expression<double>? chargerTempC,
     Expression<int>? tripId,
   }) {
     return RawValuesInsertable({
@@ -2347,6 +2382,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       if (cellVoltageMaxMv != null) 'cell_voltage_max_mv': cellVoltageMaxMv,
       if (cellVoltageMinMv != null) 'cell_voltage_min_mv': cellVoltageMinMv,
       if (packVoltageBmsMv != null) 'pack_voltage_bms_mv': packVoltageBmsMv,
+      if (chargerTempC != null) 'charger_temp_c': chargerTempC,
       if (tripId != null) 'trip_id': tripId,
     });
   }
@@ -2369,6 +2405,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       Value<int>? cellVoltageMaxMv,
       Value<int>? cellVoltageMinMv,
       Value<int>? packVoltageBmsMv,
+      Value<double>? chargerTempC,
       Value<int?>? tripId}) {
     return LogRecordsCompanion(
       id: id ?? this.id,
@@ -2388,6 +2425,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
       cellVoltageMaxMv: cellVoltageMaxMv ?? this.cellVoltageMaxMv,
       cellVoltageMinMv: cellVoltageMinMv ?? this.cellVoltageMinMv,
       packVoltageBmsMv: packVoltageBmsMv ?? this.packVoltageBmsMv,
+      chargerTempC: chargerTempC ?? this.chargerTempC,
       tripId: tripId ?? this.tripId,
     );
   }
@@ -2446,6 +2484,9 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
     if (packVoltageBmsMv.present) {
       map['pack_voltage_bms_mv'] = Variable<int>(packVoltageBmsMv.value);
     }
+    if (chargerTempC.present) {
+      map['charger_temp_c'] = Variable<double>(chargerTempC.value);
+    }
     if (tripId.present) {
       map['trip_id'] = Variable<int>(tripId.value);
     }
@@ -2472,6 +2513,7 @@ class LogRecordsCompanion extends UpdateCompanion<LogRecord> {
           ..write('cellVoltageMaxMv: $cellVoltageMaxMv, ')
           ..write('cellVoltageMinMv: $cellVoltageMinMv, ')
           ..write('packVoltageBmsMv: $packVoltageBmsMv, ')
+          ..write('chargerTempC: $chargerTempC, ')
           ..write('tripId: $tripId')
           ..write(')'))
         .toString();
@@ -3584,6 +3626,7 @@ typedef $$LogRecordsTableCreateCompanionBuilder = LogRecordsCompanion Function({
   required int cellVoltageMaxMv,
   required int cellVoltageMinMv,
   required int packVoltageBmsMv,
+  Value<double> chargerTempC,
   Value<int?> tripId,
 });
 typedef $$LogRecordsTableUpdateCompanionBuilder = LogRecordsCompanion Function({
@@ -3604,6 +3647,7 @@ typedef $$LogRecordsTableUpdateCompanionBuilder = LogRecordsCompanion Function({
   Value<int> cellVoltageMaxMv,
   Value<int> cellVoltageMinMv,
   Value<int> packVoltageBmsMv,
+  Value<double> chargerTempC,
   Value<int?> tripId,
 });
 
@@ -3699,6 +3743,9 @@ class $$LogRecordsTableFilterComposer
   ColumnFilters<int> get packVoltageBmsMv => $composableBuilder(
       column: $table.packVoltageBmsMv,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get chargerTempC => $composableBuilder(
+      column: $table.chargerTempC, builder: (column) => ColumnFilters(column));
 
   $$DaysTableFilterComposer get dayDate {
     final $$DaysTableFilterComposer composer = $composerBuilder(
@@ -3804,6 +3851,10 @@ class $$LogRecordsTableOrderingComposer
       column: $table.packVoltageBmsMv,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get chargerTempC => $composableBuilder(
+      column: $table.chargerTempC,
+      builder: (column) => ColumnOrderings(column));
+
   $$DaysTableOrderingComposer get dayDate {
     final $$DaysTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -3902,6 +3953,9 @@ class $$LogRecordsTableAnnotationComposer
   GeneratedColumn<int> get packVoltageBmsMv => $composableBuilder(
       column: $table.packVoltageBmsMv, builder: (column) => column);
 
+  GeneratedColumn<double> get chargerTempC => $composableBuilder(
+      column: $table.chargerTempC, builder: (column) => column);
+
   $$DaysTableAnnotationComposer get dayDate {
     final $$DaysTableAnnotationComposer composer = $composerBuilder(
         composer: this,
@@ -3983,6 +4037,7 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             Value<int> cellVoltageMaxMv = const Value.absent(),
             Value<int> cellVoltageMinMv = const Value.absent(),
             Value<int> packVoltageBmsMv = const Value.absent(),
+            Value<double> chargerTempC = const Value.absent(),
             Value<int?> tripId = const Value.absent(),
           }) =>
               LogRecordsCompanion(
@@ -4003,6 +4058,7 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             cellVoltageMaxMv: cellVoltageMaxMv,
             cellVoltageMinMv: cellVoltageMinMv,
             packVoltageBmsMv: packVoltageBmsMv,
+            chargerTempC: chargerTempC,
             tripId: tripId,
           ),
           createCompanionCallback: ({
@@ -4023,6 +4079,7 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             required int cellVoltageMaxMv,
             required int cellVoltageMinMv,
             required int packVoltageBmsMv,
+            Value<double> chargerTempC = const Value.absent(),
             Value<int?> tripId = const Value.absent(),
           }) =>
               LogRecordsCompanion.insert(
@@ -4043,6 +4100,7 @@ class $$LogRecordsTableTableManager extends RootTableManager<
             cellVoltageMaxMv: cellVoltageMaxMv,
             cellVoltageMinMv: cellVoltageMinMv,
             packVoltageBmsMv: packVoltageBmsMv,
+            chargerTempC: chargerTempC,
             tripId: tripId,
           ),
           withReferenceMapper: (p0) => p0

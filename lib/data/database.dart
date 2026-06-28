@@ -98,6 +98,9 @@ class LogRecords extends Table {
   IntColumn get cellVoltageMinMv => integer()();
   IntColumn get packVoltageBmsMv => integer()();
 
+  // MG Gen2 V2L charger (0x33B)
+  RealColumn get chargerTempC => real().withDefault(const Constant(0.0))();
+
   // Which trip this record belongs to — null if outside any trip marker
   IntColumn get tripId => integer().nullable().references(Trips, #id)();
 }
@@ -109,7 +112,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -134,6 +137,10 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 7) {
         await customStatement('ALTER TABLE sync_sessions ADD COLUMN record_date TEXT');
+      }
+      if (from < 8) {
+        await customStatement(
+            'ALTER TABLE log_records ADD COLUMN charger_temp_c REAL NOT NULL DEFAULT 0.0');
       }
     },
   );

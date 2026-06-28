@@ -97,6 +97,11 @@ class _TripDetailBody extends StatelessWidget {
               colour: Colors.pinkAccent,
               spots:  _toSpots((r) => r.bmsTempMaxC),
             ),
+            _ChartLine(
+              label:  'Charger',
+              colour: Colors.blueAccent,
+              spots:  _toSpots((r) => r.chargerTempC),
+            ),
           ],
           unit: '°C',
         ),

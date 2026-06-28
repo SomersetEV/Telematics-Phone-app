@@ -5,8 +5,9 @@
 // SNAP1 row format (sd_logger.c write_snapshot):
 //   Header: SNAP1,tick_ms,soc_pct,pack_v_bms_mv,pack_i_ma,isa_kw_w,isa_as,
 //           motor_rpm,motor_temp_c10,inv_temp_c10,bms_tmax_c10,bms_tmin_c10,
-//           cell_v_max_mv,cell_v_min_mv
-//   Data:   SNAP1,<tick_ms>,<values...>   (14 columns, p[0]="SNAP1", p[1]=tick_ms)
+//           cell_v_max_mv,cell_v_min_mv,charger_temp_c10
+//   Data:   SNAP1,<tick_ms>,<values...>   (15 columns, p[0]="SNAP1", p[1]=tick_ms;
+//           charger_temp_c10 at p[14] is optional — absent in pre-charger-temp CSVs)
 //   Markers: TRIP_START,,,,... / TRIP_END,<duration_s>,<ah>,<kwh>,<soc_start>,<soc_end>,<peak_a>,...
 //
 // Timestamp reconstruction:
@@ -54,6 +55,7 @@ class _VehicleState {
   int    cellVoltageMaxMv = 0;
   int    cellVoltageMinMv = 0;
   int    packVoltageBmsMv = 0;
+  double chargerTempC     = 0;
 }
 
 class CsvParser {
@@ -83,7 +85,8 @@ class CsvParser {
   //          p[4]=pack_i_ma, p[5]=isa_kw_w, p[6]=isa_as,
   //          p[7]=motor_rpm, p[8]=motor_temp_c10, p[9]=inv_temp_c10,
   //          p[10]=bms_tmax_c10, p[11]=bms_tmin_c10,
-  //          p[12]=cell_v_max_mv, p[13]=cell_v_min_mv
+  //          p[12]=cell_v_max_mv, p[13]=cell_v_min_mv,
+  //          p[14]=charger_temp_c10 (optional)
 
   static ParsedSession _parseSnap(List<String> dataLines, int syncedAtUnix) {
     int maxTickMs = 0;
@@ -147,7 +150,9 @@ class CsvParser {
         ..bmsTempMaxC      = (int.tryParse(p[10]) ?? 0) / 10.0
         ..bmsTempMinC      = (int.tryParse(p[11]) ?? 0) / 10.0
         ..cellVoltageMaxMv = int.tryParse(p[12]) ?? 0
-        ..cellVoltageMinMv = int.tryParse(p[13]) ?? 0;
+        ..cellVoltageMinMv = int.tryParse(p[13]) ?? 0
+        // charger_temp_c10 (p[14]) added later — older 14-column CSVs lack it
+        ..chargerTempC     = (p.length > 14 ? (int.tryParse(p[14]) ?? 0) : 0) / 10.0;
 
       final companion   = _makeRecord(unixTime, tickMs, state);
       final recordIndex = records.length;
@@ -190,6 +195,7 @@ class CsvParser {
         cellVoltageMaxMv: Value(s.cellVoltageMaxMv),
         cellVoltageMinMv: Value(s.cellVoltageMinMv),
         packVoltageBmsMv: Value(s.packVoltageBmsMv),
+        chargerTempC:     Value(s.chargerTempC),
         tripId:           const Value(null),
       );
 
