@@ -26,7 +26,7 @@ class TripDetailScreen extends StatelessWidget {
           }
           final records = snapshot.data ?? [];
           if (records.isEmpty) {
-            return const Center(child: Text('No data for this trip'));
+            return _SummaryOnlyBody(trip: trip);
           }
           return _TripDetailBody(trip: trip, records: records);
         },
@@ -38,6 +38,33 @@ class TripDetailScreen extends StatelessWidget {
       DateFormat('HH:mm').format(
         DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000),
       );
+}
+
+// ── Summary-only body (no log records) ───────────────────────────────────────
+
+class _SummaryOnlyBody extends StatelessWidget {
+  final Trip trip;
+  const _SummaryOnlyBody({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _StatsBar(trip: trip),
+        const SizedBox(height: 24),
+        Center(
+          child: Text(
+            'Time-series charts are not available\nfor jobs synced in summary mode.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ── Body ──────────────────────────────────────────────────────────────────────
