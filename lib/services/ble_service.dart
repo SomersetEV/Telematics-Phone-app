@@ -19,7 +19,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
@@ -109,24 +108,6 @@ class BleService extends ChangeNotifier {
 
   // Sessions to sync — populated from LIST response
   final List<int> _pendingSessions = [];
-
-  // ── GPS speed streaming ────────────────────────────────────────────────────
-  // Send at a fixed rate rather than on each GPS callback: the tractor decides
-  // "stale" purely on elapsed time, so a steady heartbeat keeps that decision
-  // independent of platform-specific location update timing.
-  static const Duration _gpsSendPeriod = Duration(milliseconds: 200);  // 5 Hz
-  static const double   _gpsMaxSpeedAccuracy = 2.0;  // m/s — worse than this is untrusted
-
-  StreamSubscription<Position>? _gpsSub;
-  Timer?                        _gpsTimer;
-  int                           _lastCentiMph = 0;
-  bool                          _lastFixValid = false;
-
-  /// Latest GPS speed in mph, or null when there is no usable fix.
-  /// Read this to show what is being sent to the tractor. Note it does NOT
-  /// call notifyListeners() — rebuilding the tree 5x/second would be wasteful,
-  /// so a UI wanting a live readout should poll it on its own timer.
-  double? get gpsSpeedMph => _lastFixValid ? _lastCentiMph / 100.0 : null;
 
   // ── Scan and connect ───────────────────────────────────────────────────────
 
@@ -230,17 +211,7 @@ class BleService extends ChangeNotifier {
     _handleDisconnect(reconnect: false);
   }
 
-  @override
-  void dispose() {
-    _stopGpsStream();
-    _notifySub?.cancel();
-    _stateSub?.cancel();
-    _scanSub?.cancel();
-    super.dispose();
-  }
-
   void _handleDisconnect({bool reconnect = true}) {
-    _stopGpsStream();
     _notifySub?.cancel();
     _stateSub?.cancel();
     _scanSub?.cancel();
@@ -420,12 +391,6 @@ class BleService extends ChangeNotifier {
           .catchError((_) => 'timeout');  // TIME failure is non-fatal
       _responseWaiter = null;
 
-      // TIME has claimed Telematics mode — safe to start the speed stream now.
-      // SPD is handled in the ESP32's GATT callback and never enters its
-      // command queue, so it runs concurrently with the session download below
-      // without starving LIST/GET/DONE.
-      unawaited(_startGpsStream());
-
       // 2. Request session list — retry up to 2 times if the ESP32 is slow
       String? listResponse;
       for (int attempt = 1; attempt <= 3; attempt++) {
@@ -473,92 +438,6 @@ class BleService extends ChangeNotifier {
     syncProgress = null;
     await _queryTripState();
     _setState(BleConnectionState.connected);
-  }
-
-  // ── GPS speed streaming ────────────────────────────────────────────────────
-
-  /// Start streaming GPS ground speed to the tractor as `SPD <centi_mph> <fix>`.
-  /// The tractor re-broadcasts it on CAN 0x3E8 for the Leyland dash.
-  ///
-  /// Must be called only after the TIME handshake: any ordinary command puts
-  /// the device in Telematics mode, but SPD deliberately does not, so a device
-  /// that had seen nothing else would fall through to Speedo mode after 3s.
-  Future<void> _startGpsStream() async {
-    if (_gpsTimer != null) return;  // already running
-
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        debugPrint('GPS: location services disabled — not streaming speed');
-        return;
-      }
-
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        debugPrint('GPS: permission denied — not streaming speed');
-        return;
-      }
-
-      _gpsSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 0,
-        ),
-      ).listen(_onPosition, onError: (e) {
-        debugPrint('GPS stream error: $e');
-        _lastFixValid = false;
-      });
-
-      // Fixed-rate send, repeating the last fix between GPS updates.
-      _gpsTimer = Timer.periodic(_gpsSendPeriod, (_) => _sendSpeed());
-      debugPrint('GPS: streaming speed to tractor at '
-                 '${1000 ~/ _gpsSendPeriod.inMilliseconds} Hz');
-    } catch (e) {
-      debugPrint('GPS: failed to start — $e');
-    }
-  }
-
-  void _stopGpsStream() {
-    _gpsTimer?.cancel();
-    _gpsTimer = null;
-    _gpsSub?.cancel();
-    _gpsSub = null;
-    _lastFixValid = false;
-    _lastCentiMph = 0;
-  }
-
-  void _onPosition(Position pos) {
-    final mps = pos.speed;  // metres/second; negative or NaN when unavailable
-    final ok  = mps.isFinite &&
-                mps >= 0 &&
-                pos.speedAccuracy.isFinite &&
-                pos.speedAccuracy <= _gpsMaxSpeedAccuracy;
-
-    if (ok) {
-      // m/s -> 0.01 mph. 65535 is the tractor's "unknown" sentinel, so cap below it.
-      _lastCentiMph = (mps * 223.694).round().clamp(0, 65534);
-      _lastFixValid = true;
-    } else {
-      _lastCentiMph = 0;
-      _lastFixValid = false;
-    }
-  }
-
-  void _sendSpeed() {
-    if (_rxChar == null) return;
-
-    // Keep sending with fix=0 on GPS loss rather than going silent — it tells
-    // the tractor "phone is here but has no fix", which is distinguishable from
-    // "phone is gone" and invalidates the CAN frame immediately.
-    final cmd = 'SPD $_lastCentiMph ${_lastFixValid ? 1 : 0}';
-
-    // Fire and forget: the tractor never replies to SPD, and a failed write
-    // just means one skipped sample. Awaiting here would let a slow write
-    // stack up behind the next timer tick.
-    unawaited(_sendCommand(cmd).catchError((_) {}));
   }
 
   Future<void> _queryTripState() async {

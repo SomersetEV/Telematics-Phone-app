@@ -13,9 +13,6 @@ dependencies:
   # BLE
   flutter_blue_plus: ^1.31.0
 
-  # GPS — ground speed streamed to the tractor over BLE (SPD command)
-  geolocator: ^13.0.1
-
   # Database
   drift: ^2.14.0
   sqlite3_flutter_libs: ^0.5.0

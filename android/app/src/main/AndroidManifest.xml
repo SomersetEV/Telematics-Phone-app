@@ -16,23 +16,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-    <!--
-        Location. Needed on Android 11 and below for BLE scanning, and on ALL
-        versions for GPS ground speed — the app streams speed to the tractor
-        over BLE (SPD command) so the dash can display road speed. This is why
-        ACCESS_FINE_LOCATION is NOT capped at maxSdkVersion here.
-
-        Foreground use only: streaming stops when the app is backgrounded. If
-        speed is ever needed with the screen off, this additionally needs
-        ACCESS_BACKGROUND_LOCATION plus a location foreground service.
-    -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
 
     <!-- Declare that BLE is required — filters app from non-BLE devices on Play Store -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:label="Somerset EV - Telematics"
