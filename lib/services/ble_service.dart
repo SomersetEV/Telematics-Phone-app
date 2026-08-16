@@ -63,6 +63,15 @@ class SyncProgress {
   String get label => 'Session $currentSession of $totalSessions';
 }
 
+/// AP credentials the firmware reports back after WIFI_MODE — see
+/// ble_nus.c handle_wifi_mode_command(), reply format "WIFI_MODE ssid=... pass=...".
+class WebInterfaceInfo {
+  final String ssid;
+  final String pass;
+
+  const WebInterfaceInfo({required this.ssid, required this.pass});
+}
+
 // ── Internal protocol state ──────────────────────────────────────────────────
 
 enum _SyncState { idle, waitingList, waitingData, receivingFile, waitingEnd }
@@ -79,6 +88,7 @@ class BleService extends ChangeNotifier {
   String?            lastError;
   String?            lastSyncResult;
   bool               canBusActive    = false;
+  WebInterfaceInfo?  webInterfaceInfo;
 
   // ── Private ────────────────────────────────────────────────────────────────
   int      _lastCanFrameCount  = 0;
@@ -340,15 +350,46 @@ class BleService extends ChangeNotifier {
             }
             notifyListeners();
           }
-        } else if (_responseWaiter != null) {
+        } else if (_responseWaiter != null && _isControlReply(line)) {
           _responseWaiter?.complete(line);
           _responseWaiter = null;
         }
+        // Anything else here is residue from an aborted transfer (a partial CSV
+        // row, or a late END). Dropping it keeps the waiter open for the real
+        // reply instead of resolving the command with garbage.
         break;
     }
   }
 
   // ── Command helpers ────────────────────────────────────────────────────────
+
+  /// True for the firmware's single-line control replies (ble_nus.c
+  /// dispatch_command): OK, ERR <reason>, STATUS trip=N, LIST ..., SUMMARY ...
+  /// CSV data rows never match, so this distinguishes a real reply from
+  /// leftover file content still arriving after an aborted transfer.
+  static bool _isControlReply(String line) =>
+      line.startsWith('OK')     ||
+      line.startsWith('ERR')    ||
+      line.startsWith('STATUS') ||
+      line.startsWith('LIST')   ||
+      line.startsWith('SUMMARY') ||
+      line.startsWith('WIFI_MODE');
+
+  /// Return the protocol to a clean idle state.
+  ///
+  /// The ESP32 emits a "CAN <count>" heartbeat once per second whenever its
+  /// command queue is idle, and keeps streaming file chunks until it sends END.
+  /// If we abandon a transfer part-way (GET timeout, ingest failure) without
+  /// clearing state, those in-flight lines are still arriving when the next
+  /// command goes out — and in idle/waitingEnd any non-CAN line completes the
+  /// waiting Completer. The next reply then has no waiter and the command sits
+  /// until its full timeout. Always land back here before the next command.
+  void _resetProtocolState() {
+    _syncState = _SyncState.idle;
+    _fileBuffer.clear();
+    _expectedFileSize = 0;
+    _responseWaiter = null;
+  }
 
   Future<void> _sendCommand(String command) async {
     if (_rxChar == null) throw Exception('Not connected');
@@ -384,7 +425,7 @@ class BleService extends ChangeNotifier {
     try {
       // 1. Send current time for soft RTC
       final unixNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      _syncState      = _SyncState.idle;
+      _resetProtocolState();
       _responseWaiter = Completer<String>();
       await _sendCommand('TIME $unixNow');
       await _responseWaiter!.future.timeout(const Duration(seconds: 5))
@@ -433,6 +474,9 @@ class BleService extends ChangeNotifier {
 
     } catch (e) {
       lastError = 'Sync failed: $e';
+      // LIST/GET gave up — clear state so the STATUS below (and any later
+      // retry) starts from a clean slate rather than inheriting this one.
+      _resetProtocolState();
     }
 
     syncProgress = null;
@@ -441,7 +485,7 @@ class BleService extends ChangeNotifier {
   }
 
   Future<void> _queryTripState() async {
-    _syncState      = _SyncState.idle;
+    _resetProtocolState();
     _responseWaiter = Completer<String>();
     try {
       await _sendCommand('STATUS');
@@ -469,6 +513,10 @@ class BleService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('GET $idStr failed: $e');
+      // Transfer aborted mid-state — drop back to idle and discard any partial
+      // file content, otherwise the next command's waiter is completed by a
+      // leftover CSV row instead of its real reply.
+      _resetProtocolState();
       return;
     }
 
@@ -491,7 +539,10 @@ class BleService extends ChangeNotifier {
     } catch (e) {
       lastSyncResult = 'Session $idStr: ingest error — $e';
       notifyListeners();
-      return;   // don't send DONE — keep available for retry
+      // Don't send DONE — keep the session available for retry. State still has
+      // to go back to idle, or the next command inherits this waitingEnd.
+      _resetProtocolState();
+      return;
     }
 
     if (recordCount == 0) {
@@ -506,8 +557,9 @@ class BleService extends ChangeNotifier {
     }
     notifyListeners();
 
-    // Confirm receipt — ESP32 updates NVS last_synced
-    _syncState      = _SyncState.idle;
+    // Confirm receipt — ESP32 updates NVS last_synced.
+    // Clear any residue from the transfer before opening a new waiter.
+    _resetProtocolState();
     _responseWaiter = Completer<String>();
     await _sendCommand('DONE $sessionId');
     await _responseWaiter!.future
@@ -539,7 +591,7 @@ class BleService extends ChangeNotifier {
     if (tripActive) return;
 
     try {
-      _syncState      = _SyncState.idle;
+      _resetProtocolState();
       _responseWaiter = Completer<String>();
       await _sendCommand('TRIP_START');
       await _responseWaiter!.future.timeout(const Duration(seconds: 5));
@@ -548,6 +600,7 @@ class BleService extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       lastError = 'Failed to start trip: $e';
+      _resetProtocolState();   // drop the timed-out waiter
       notifyListeners();
     }
   }
@@ -557,7 +610,7 @@ class BleService extends ChangeNotifier {
     if (!tripActive) return;
 
     try {
-      _syncState      = _SyncState.idle;
+      _resetProtocolState();
       _responseWaiter = Completer<String>();
       await _sendCommand('TRIP_END');
       // ESP32 waits for file close + session rotate before replying OK (up to 2s)
@@ -569,6 +622,39 @@ class BleService extends ChangeNotifier {
       await _runSyncProtocol();
     } catch (e) {
       lastError = 'Failed to stop trip: $e';
+      _resetProtocolState();   // drop the timed-out waiter
+      notifyListeners();
+    }
+  }
+
+  // ── Web-interface (bench/service) mode ───────────────────────────────────────
+
+  /// Switches the tractor unit from BLE logging mode into WiFi web-interface
+  /// mode for configuring the inverter. Firmware reboots into the new mode
+  /// after replying, so the BLE link drops right after this call resolves —
+  /// that's expected, not a failure (see ble_nus.c handle_wifi_mode_command).
+  Future<void> enterWifiMode() async {
+    if (connectionState != BleConnectionState.connected) return;
+
+    try {
+      _resetProtocolState();
+      _responseWaiter = Completer<String>();
+      await _sendCommand('WIFI_MODE');
+      final reply = await _responseWaiter!.future.timeout(const Duration(seconds: 5));
+      _responseWaiter = null;
+
+      final ssidMatch = RegExp(r'ssid=(\S+)').firstMatch(reply);
+      final passMatch = RegExp(r'pass=(\S+)').firstMatch(reply);
+      if (ssidMatch != null && passMatch != null) {
+        webInterfaceInfo = WebInterfaceInfo(
+          ssid: ssidMatch.group(1)!,
+          pass: passMatch.group(1)!,
+        );
+      }
+      notifyListeners();
+    } catch (e) {
+      lastError = 'Failed to enter web-interface mode: $e';
+      _resetProtocolState();
       notifyListeners();
     }
   }

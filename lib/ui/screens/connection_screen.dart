@@ -119,6 +119,51 @@ class _StatusPanel extends StatelessWidget {
 
           // Connect / Disconnect button
           _ConnectButton(ble: ble),
+
+          if (ble.connectionState == BleConnectionState.connected)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: TextButton.icon(
+                onPressed: () => _startWifiMode(context, ble),
+                icon:  const Icon(Icons.wifi, size: 16),
+                label: const Text('Configure FOCCCI'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startWifiMode(BuildContext context, BleService ble) async {
+    await ble.enterWifiMode();
+    if (!context.mounted) return;
+    final info = ble.webInterfaceInfo;
+    if (info == null) return;  // enterWifiMode() already surfaced the error via lastError
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Web Interface Mode'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('The tractor unit is rebooting into WiFi mode. '
+                'Connect your phone or laptop to:'),
+            const SizedBox(height: 12),
+            SelectableText('SSID: ${info.ssid}',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            SelectableText('Password: ${info.pass}'),
+            const SizedBox(height: 12),
+            const Text('Then browse to http://192.168.4.1/ to configure the inverter. '
+                'Reboot the device (or power-cycle) to return to logging mode.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
         ],
       ),
     );
