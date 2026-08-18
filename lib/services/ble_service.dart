@@ -320,6 +320,17 @@ class BleService extends ChangeNotifier {
           _syncState = _SyncState.waitingEnd;
           _responseWaiter?.complete(_fileBuffer.toString());
           _responseWaiter = null;
+        } else if (line.startsWith('CAN ')) {
+          // Heartbeat interleaved into the transfer — not CSV data. Drop it;
+          // buffering it corrupts the session and the parser silently discards
+          // the affected rows.
+        } else if (line.startsWith('ERR')) {
+          // The device aborted mid-transfer. Fail the waiter rather than
+          // appending the error text to the CSV and waiting out the 2min timeout.
+          debugPrint('GET aborted mid-transfer: $line');
+          _syncState = _SyncState.idle;
+          _responseWaiter?.completeError(line);
+          _responseWaiter = null;
         } else {
           _fileBuffer.writeln(line);
           // Update progress
@@ -350,9 +361,22 @@ class BleService extends ChangeNotifier {
             }
             notifyListeners();
           }
+<<<<<<< Updated upstream
         } else if (_responseWaiter != null && _isControlReply(line)) {
+=======
+        } else if (line.startsWith('ERR')) {
+          // Never let an error satisfy a pending waiter. Doing so made DONE
+          // "succeed" on ERR unknown_cmd, and made _queryTripState() read trip
+          // state out of an error string.
+          debugPrint('Device error: $line');
+          _responseWaiter?.completeError(line);
+          _responseWaiter = null;
+        } else if (_responseWaiter != null) {
+>>>>>>> Stashed changes
           _responseWaiter?.complete(line);
           _responseWaiter = null;
+        } else {
+          debugPrint('Unsolicited line ignored: $line');
         }
         // Anything else here is residue from an aborted transfer (a partial CSV
         // row, or a late END). Dropping it keeps the waiter open for the real
@@ -513,10 +537,17 @@ class BleService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('GET $idStr failed: $e');
+<<<<<<< Updated upstream
       // Transfer aborted mid-state — drop back to idle and discard any partial
       // file content, otherwise the next command's waiter is completed by a
       // leftover CSV row instead of its real reply.
       _resetProtocolState();
+=======
+      // Surface it. This path was previously silent, which is what made a
+      // stuck sync look like "connected, synced, no jobs" with nothing to go on.
+      lastSyncResult = 'Session $idStr: download failed — $e';
+      notifyListeners();
+>>>>>>> Stashed changes
       return;
     }
 
@@ -545,7 +576,12 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    if (recordCount == 0) {
+    if (recordCount < 0) {
+      // ingestSession returns -1 when esp32SessionId is already in the database.
+      // Previously this matched neither branch below and produced no message at
+      // all — the signature of the silent re-download loop.
+      lastSyncResult = 'Session $idStr: already in database, skipped';
+    } else if (recordCount == 0) {
       final allLines   = csvContent.split('\n').where((l) => l.trim().isNotEmpty).toList();
       final dataLines  = allLines.length - 1; // minus header
       final firstData  = allLines.length > 1 ? allLines[1] : '—';
@@ -562,10 +598,20 @@ class BleService extends ChangeNotifier {
     _resetProtocolState();
     _responseWaiter = Completer<String>();
     await _sendCommand('DONE $sessionId');
-    await _responseWaiter!.future
+    final doneResp = await _responseWaiter!.future
         .timeout(const Duration(seconds: 5))
         .catchError((_) => 'timeout');
     _responseWaiter = null;
+
+    // An unacknowledged DONE leaves last_synced unadvanced on the device, so the
+    // session is re-listed and re-downloaded on every future sync. Say so rather
+    // than looping in silence.
+    if (!doneResp.startsWith('OK')) {
+      debugPrint('DONE $idStr not acknowledged: $doneResp');
+      lastSyncResult = 'Session $idStr: not acknowledged ($doneResp) '
+                       '— will re-sync next time';
+      notifyListeners();
+    }
   }
 
   List<int> _parseListResponse(String response) {
