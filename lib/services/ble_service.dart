@@ -443,7 +443,18 @@ class BleService extends ChangeNotifier {
     await _runSyncProtocol();
   }
 
+  // Guards against overlapping sync runs. _runSyncProtocol is reachable from
+  // _connect, retrySync and stopTrip, so a reconnect part-way through a sync
+  // used to start a second run alongside the first. Both would then pass the
+  // isAlreadySynced check for the same session and collide on insert.
+  bool _syncRunning = false;
+
   Future<void> _runSyncProtocol() async {
+    if (_syncRunning) {
+      debugPrint('Sync already running — ignoring re-entrant request');
+      return;
+    }
+    _syncRunning = true;
     _setState(BleConnectionState.syncing);
 
     try {
@@ -501,6 +512,10 @@ class BleService extends ChangeNotifier {
       // LIST/GET gave up — clear state so the STATUS below (and any later
       // retry) starts from a clean slate rather than inheriting this one.
       _resetProtocolState();
+    } finally {
+      // In finally, not after the block: leaving this set on an unexpected
+      // throw would disable syncing for the rest of the session.
+      _syncRunning = false;
     }
 
     syncProgress = null;

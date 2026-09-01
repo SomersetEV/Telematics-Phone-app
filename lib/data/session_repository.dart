@@ -41,7 +41,20 @@ class SessionRepository {
     // Group records by date for day-level processing
     final recordsByDate = groupBy(parsed.records, (r) => r.dayDate.value);
 
+    // The guard above is check-then-act: two overlapping sync runs can both pass
+    // it, then both reach step 4 and the second dies on the esp32SessionId
+    // primary key. A thrown ingest error makes _downloadSession skip DONE, so
+    // the device never advances last_synced and re-offers the session forever.
+    bool duplicate = false;
+
     await db.transaction(() async {
+      // Re-check atomically. Drift serialises transactions, so if a concurrent
+      // run beat us here, its sync-session row is already committed.
+      if (await isAlreadySynced(esp32SessionId)) {
+        duplicate = true;
+        return;
+      }
+
       // ── 1. Insert raw log records (without trip IDs yet) ─────────────────
       await db.insertLogRecords(parsed.records);
 
@@ -116,6 +129,10 @@ class SessionRepository {
         recordDate:               Value(parsed.records.first.dayDate.value),
       ));
     });
+
+    // -1 tells the caller to ACK the session anyway — re-downloading it will
+    // never succeed, so retrying just blocks every session behind it.
+    if (duplicate) return -1;
 
     return parsed.records.length;
   }
