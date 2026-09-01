@@ -361,9 +361,6 @@ class BleService extends ChangeNotifier {
             }
             notifyListeners();
           }
-<<<<<<< Updated upstream
-        } else if (_responseWaiter != null && _isControlReply(line)) {
-=======
         } else if (line.startsWith('ERR')) {
           // Never let an error satisfy a pending waiter. Doing so made DONE
           // "succeed" on ERR unknown_cmd, and made _queryTripState() read trip
@@ -371,8 +368,7 @@ class BleService extends ChangeNotifier {
           debugPrint('Device error: $line');
           _responseWaiter?.completeError(line);
           _responseWaiter = null;
-        } else if (_responseWaiter != null) {
->>>>>>> Stashed changes
+        } else if (_responseWaiter != null && _isControlReply(line)) {
           _responseWaiter?.complete(line);
           _responseWaiter = null;
         } else {
@@ -552,17 +548,14 @@ class BleService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('GET $idStr failed: $e');
-<<<<<<< Updated upstream
       // Transfer aborted mid-state — drop back to idle and discard any partial
       // file content, otherwise the next command's waiter is completed by a
       // leftover CSV row instead of its real reply.
       _resetProtocolState();
-=======
       // Surface it. This path was previously silent, which is what made a
       // stuck sync look like "connected, synced, no jobs" with nothing to go on.
       lastSyncResult = 'Session $idStr: download failed — $e';
       notifyListeners();
->>>>>>> Stashed changes
       return;
     }
 
