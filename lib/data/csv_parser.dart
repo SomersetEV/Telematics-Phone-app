@@ -7,12 +7,19 @@
 //           motor_rpm,motor_temp_c10,inv_temp_c10,bms_tmax_c10,bms_tmin_c10,
 //           cell_v_max_mv,cell_v_min_mv,charger_temp_c10
 //   Data:   SNAP1,<tick_ms>,<values...>   (15 columns, p[0]="SNAP1", p[1]=tick_ms;
-//           charger_temp_c10 at p[14] is optional — absent in pre-charger-temp CSVs)
+//           charger_temp_c10 at p[14] is optional — absent in pre-charger-temp CSVs;
+//           the P4 dash appends unix_time at p[15], 0 while its clock is unset)
 //   Markers: TRIP_START,,,,... / TRIP_END,<duration_s>,<ah>,<kwh>,<soc_start>,<soc_end>,<peak_a>,...
 //
-// Timestamp reconstruction:
-//   Reconstructed unix = syncedAtUnix − maxTickMs/1000 + tickMs/1000
-//   (assumes the session ended approximately when the phone synced it)
+// Timestamps:
+//   unix = offset + tickMs/1000, one offset per session (tick_ms never jumps
+//   within a session, so rows stay evenly spaced).
+//   - offset = unix_time − tick_ms/1000 from the last row carrying a real
+//     unix_time. The phone's TIME command sets the dash clock on every
+//     connect, so this dates sessions correctly however late they are synced.
+//   - Otherwise (LilyGo files, or a clock never set): offset =
+//     syncedAtUnix − maxTickMs/1000, which assumes the session ended when the
+//     phone synced it.
 
 import 'package:drift/drift.dart';
 import 'database.dart';
@@ -32,12 +39,23 @@ class RawTrip {
   final int? socStart;           // from TRIP_END summary row
   final int? socEnd;
 
+  // TRIP_START came before any data row. The dash writes that only when it
+  // carries a running trip into a new session (after a power cut, or a
+  // file reopened after a write error), so this continues an open job.
+  final bool continuesPrevious;
+
+  // Ended by a TRIP_END row. False when the file just stopped (a power cut),
+  // and the job may carry on in the next session.
+  final bool closed;
+
   RawTrip({
     required this.startUnix,
     required this.endUnix,
     required this.recordIndices,
     this.socStart,
     this.socEnd,
+    this.continuesPrevious = false,
+    this.closed = true,
   });
 }
 
@@ -88,28 +106,44 @@ class CsvParser {
   //          p[12]=cell_v_max_mv, p[13]=cell_v_min_mv,
   //          p[14]=charger_temp_c10 (optional)
 
+  // Earliest plausible unix_time; the dash writes 0 while its clock is unset.
+  static const int _minValidUnix = 1577836800;  // 2020-01-01
+
   static ParsedSession _parseSnap(List<String> dataLines, int syncedAtUnix) {
-    int maxTickMs = 0;
+    int  maxTickMs    = 0;
+    int? clockOffset;   // unix − tick_s, from the last row with a real unix_time
     for (final line in dataLines.reversed) {
       if (line.startsWith('TRIP_')) continue;
       final p = line.split(',');
-      if (p.length < 2) continue;
-      maxTickMs = int.tryParse(p[1]) ?? 0;
-      if (maxTickMs > 0) break;
+      // Same rule as the rows kept below, so a truncated row cannot set the end.
+      if (p.length < 14) continue;
+      final tick = int.tryParse(p[1]) ?? 0;
+      if (tick <= 0) continue;
+      if (maxTickMs == 0) maxTickMs = tick;
+      final unix = p.length > 15 ? int.tryParse(p[15].trim()) : null;
+      if (unix != null && unix >= _minValidUnix) {
+        clockOffset = unix - tick ~/ 1000;
+        break;
+      }
+      // LilyGo files never carry unix_time; don't scan them end to end.
+      if (p.length <= 15) break;
     }
-    final int offset = syncedAtUnix - (maxTickMs ~/ 1000);
+    final int offset = clockOffset ?? syncedAtUnix - (maxTickMs ~/ 1000);
 
     final List<LogRecordsCompanion> records = [];
     final List<RawTrip>             rawTrips = [];
 
     int? tripStartUnix;
     int? tripSocStart;
+    bool tripContinues = false;
     List<int> tripIndices = [];
 
     for (final line in dataLines) {
       if (line.startsWith('TRIP_START')) {
         tripStartUnix = -1;
-        tripSocStart  = records.isNotEmpty ? records.last.socPct.value : 0;
+        // Null when the trip opens the file; taken from its first row below.
+        tripSocStart  = records.isNotEmpty ? records.last.socPct.value : null;
+        tripContinues = records.isEmpty;
         tripIndices   = [];
         continue;
       }
@@ -124,6 +158,7 @@ class CsvParser {
             recordIndices: List.from(tripIndices),
             socStart:      tripSocStart,
             socEnd:        socEnd ?? (records.isNotEmpty ? records.last.socPct.value : 0),
+            continuesPrevious: tripContinues,
           ));
         }
         tripStartUnix = null;
@@ -160,6 +195,7 @@ class CsvParser {
 
       if (tripStartUnix != null) {
         if (tripStartUnix == -1) tripStartUnix = unixTime;
+        tripSocStart ??= state.socPct;
         tripIndices.add(recordIndex);
       }
     }
@@ -171,6 +207,8 @@ class CsvParser {
         recordIndices: List.from(tripIndices),
         socStart:      tripSocStart,
         socEnd:        records.isNotEmpty ? records.last.socPct.value : 0,
+        continuesPrevious: tripContinues,
+        closed:        false,
       ));
     }
 

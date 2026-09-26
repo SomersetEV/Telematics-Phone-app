@@ -289,4 +289,72 @@ void main() {
       expect(result.records.first.socPct.value, equals(90));
     });
   });
+
+  // ── P4 dash: unix_time column and resumed jobs ──────────────────────────────
+
+  // A P4 dash row: the 14 SNAP1 columns, charger_temp_c10, then unix_time.
+  String p4Row(int tick, int unix, {int soc = 50}) =>
+      '${_row(tick: tick, soc: soc)},0,$unix';
+
+  group('dash clock (unix_time column)', () {
+    test('dates rows from unix_time, however late the sync', () {
+      final r = _parse([
+        p4Row(10000, 1790000000),
+        p4Row(11000, 1790000001),
+      ], syncedAtUnix: 1790500000);   // synced ~6 days later
+      expect(r.session.records.map((c) => c.unixTime.value).toList(),
+             equals([1790000000, 1790000001]));
+    });
+
+    test('rows written before the clock was set take the same offset', () {
+      // The phone's TIME set the clock between these rows.
+      final r = _parse([
+        p4Row(10000, 0),
+        p4Row(11000, 0),
+        p4Row(12000, 1790000002),
+      ], syncedAtUnix: 1790500000);
+      expect(r.session.records.map((c) => c.unixTime.value).toList(),
+             equals([1790000000, 1790000001, 1790000002]));
+    });
+
+    test('a truncated last row does not move the fallback end point', () {
+      final r = _parse([
+        _row(tick: 10000),
+        _row(tick: 20000),
+        'SNAP1,99999999,8',
+      ], syncedAtUnix: 5000);
+      expect(r.session.records.last.unixTime.value, equals(5000));
+    });
+
+    test('falls back to the sync time while the clock was never set', () {
+      final r = _parse([p4Row(10000, 0), p4Row(20000, 0)], syncedAtUnix: 5000);
+      expect(r.session.records.last.unixTime.value, equals(5000));
+    });
+  });
+
+  group('resumed jobs', () {
+    test('a trip opening the file continues the previous one', () {
+      final r = _parse([
+        'TRIP_START,,,,,,,,,,,,,,,',
+        _row(tick: 1000, soc: 61),
+        _row(tick: 2000, soc: 60),
+        'TRIP_END,0,0,0,70,60,0,0,0,0,0,0,,,,',
+      ]);
+      final trip = r.session.rawTrips.single;
+      expect(trip.continuesPrevious, isTrue);
+      expect(trip.closed, isTrue);
+      expect(trip.socStart, equals(61));  // first row, not a default 0
+    });
+
+    test('a trip started after data rows is a new job', () {
+      final r = _parse([
+        _row(tick: 1000),
+        'TRIP_START,,,,,,,,,,,,,,,',
+        _row(tick: 2000),
+      ]);
+      final trip = r.session.rawTrips.single;
+      expect(trip.continuesPrevious, isFalse);
+      expect(trip.closed, isFalse);        // power cut: no TRIP_END
+    });
+  });
 }

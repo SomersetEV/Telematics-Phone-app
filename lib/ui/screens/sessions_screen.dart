@@ -1,7 +1,5 @@
 // lib/ui/screens/sessions_screen.dart
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../data/database.dart';
 import '../../data/demo_seeder.dart';
+import '../../data/session_repository.dart';
 import 'trip_detail_screen.dart';
 
 class SessionsScreen extends StatelessWidget {
@@ -243,10 +242,11 @@ class _DayCardState extends State<_DayCard> {
   Future<void> _shareDay() async {
     final db = context.read<AppDatabase>();
     final sessions = await db.getSessionsForDay(widget.day.date);
-    final files = sessions
-        .map((s) => XFile(s.rawCsvPath))
-        .where((f) => File(f.path).existsSync())
-        .toList();
+    final files = <XFile>[];
+    for (final s in sessions) {
+      final f = await resolveSavedCsv(s.rawCsvPath);
+      if (f.existsSync()) files.add(XFile(f.path));
+    }
 
     if (!mounted) return;
 

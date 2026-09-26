@@ -3,19 +3,61 @@
 // Orchestrates the full pipeline from raw CSV → database.
 // Called by the BLE sync service after a session file is fully received.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:collection/collection.dart';
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'database.dart';
 import 'csv_parser.dart';
+
+/// The saved copy of a session CSV, from the path stored at sync time.
+///
+/// Paths are stored absolute, and iOS moves the app's Documents directory on
+/// every app update or reinstall, so a stored path goes stale even though the
+/// file is still there. Fall back to the same name under today's directory.
+Future<File> resolveSavedCsv(String storedPath) async {
+  final stored = File(storedPath);
+  if (await stored.exists()) return stored;
+  try {
+    final dir = await getApplicationDocumentsDirectory();
+    return File(p.join(dir.path, 'sessions', p.basename(storedPath)));
+  } catch (_) {
+    return stored;   // no path_provider (unit tests)
+  }
+}
 
 class SessionRepository {
   final AppDatabase db;
 
   SessionRepository(this.db);
 
-  /// Returns true if this ESP32 session has already been synced.
-  Future<bool> isAlreadySynced(int esp32SessionId) =>
-      db.isSessionSynced(esp32SessionId);
+  /// Content fingerprint of a downloaded session file.
+  static String fingerprint(String csvContent) =>
+      sha256.convert(utf8.encode(csvContent)).toString();
+
+  /// True if the phone already holds this session: the same number *and* the
+  /// same file. The number alone is not enough — a new board or a new SD card
+  /// counts from 1 again, and matching on it silently discarded every new
+  /// session under a number the phone had seen before. A closed session never
+  /// changes, so an identical file is a re-download (e.g. a lost DONE).
+  Future<bool> isAlreadySynced(int esp32SessionId, String csvHash) async {
+    for (final s in await db.getSyncSessionsByNumber(esp32SessionId)) {
+      if (s.csvHash != null) {
+        if (s.csvHash == csvHash) return true;
+        continue;
+      }
+      // Synced before fingerprints were kept: compare with the saved copy.
+      // Without one there is no telling, so keep the old rule and skip.
+      final saved = await resolveSavedCsv(s.rawCsvPath);
+      if (!await saved.exists()) return true;
+      if (fingerprint(await saved.readAsString()) == csvHash) return true;
+    }
+    return false;
+  }
 
   /// Full pipeline: parse CSV, insert all records, build day and trip summaries.
   /// Returns the number of log records inserted, or 0 if nothing was parsed.
@@ -27,7 +69,8 @@ class SessionRepository {
     required int syncedAtUnix,
   }) async {
     // Guard against double-ingestion
-    if (await isAlreadySynced(esp32SessionId)) return -1;
+    final csvHash = fingerprint(csvContent);
+    if (await isAlreadySynced(esp32SessionId, csvHash)) return -1;
 
     // Parse CSV into records and raw trip markers
     final parsed = CsvParser.parse(
@@ -42,23 +85,22 @@ class SessionRepository {
     final recordsByDate = groupBy(parsed.records, (r) => r.dayDate.value);
 
     // The guard above is check-then-act: two overlapping sync runs can both pass
-    // it, then both reach step 4 and the second dies on the esp32SessionId
-    // primary key. A thrown ingest error makes _downloadSession skip DONE, so
-    // the device never advances last_synced and re-offers the session forever.
+    // it and would both ingest the session, so it is repeated inside the
+    // transaction.
     bool duplicate = false;
 
     await db.transaction(() async {
       // Re-check atomically. Drift serialises transactions, so if a concurrent
       // run beat us here, its sync-session row is already committed.
-      if (await isAlreadySynced(esp32SessionId)) {
+      if (await isAlreadySynced(esp32SessionId, csvHash)) {
         duplicate = true;
         return;
       }
 
-      // ── 1. Insert raw log records (without trip IDs yet) ─────────────────
-      await db.insertLogRecords(parsed.records);
+      // Trip IDs are stamped onto this copy before the records are inserted.
+      final records = List<LogRecordsCompanion>.of(parsed.records);
 
-      // ── 2. Upsert day summary rows ────────────────────────────────────────
+      // ── 1. Upsert day summary rows ────────────────────────────────────────
       for (final entry in recordsByDate.entries) {
         final date        = entry.key;
         final dayRecords  = entry.value;
@@ -88,10 +130,27 @@ class SessionRepository {
         }
       }
 
-      // ── 3. Insert trips and update record trip IDs ────────────────────────
-      // Group raw trips by date
+      // ── 2. Insert trips and assign their records ─────────────────────────
+      // A job left open by a power cut carries on in this session if the dash
+      // resumed it (the first trip opens the file). Either way no older job
+      // stays open past this session: sessions are ingested in order, and the
+      // dash always resumes a running job at the very top of the next one.
+      final openTrips = await db.getOpenTrips();
+      final Trip? carryInto = openTrips.isNotEmpty ? openTrips.first : null;
+      await db.closeOpenTrips();
+
       for (final rawTrip in parsed.rawTrips) {
         if (parsed.records.isEmpty) continue;
+
+        final tripRecords = rawTrip.recordIndices.map((i) => parsed.records[i]).toList();
+
+        if (rawTrip.continuesPrevious && carryInto != null) {
+          await _extendTrip(carryInto, rawTrip, tripRecords);
+          for (final i in rawTrip.recordIndices) {
+            records[i] = records[i].copyWith(tripId: Value(carryInto.id));
+          }
+          continue;
+        }
 
         final tripDate = parsed.records[rawTrip.recordIndices.first].dayDate.value;
 
@@ -99,26 +158,29 @@ class SessionRepository {
         final existingTrips = await db.getTripsForDay(tripDate);
         final tripNumber    = existingTrips.length + 1;
 
-        final tripRecords   = rawTrip.recordIndices.map((i) => parsed.records[i]).toList();
-
         final tripCompanion = StatsAggregator.buildTrip(
           dayDate:     tripDate,
           tripNumber:  tripNumber,
           rawTrip:     rawTrip,
           tripRecords: tripRecords,
-        );
+        ).copyWith(openEnded: Value(!rawTrip.closed));
 
         final tripId = await db.insertTrip(tripCompanion);
 
-        // Back-fill tripId on the log records within this trip
-        // We need the actual DB row IDs — query the just-inserted records by tick range
-        // This is the one slightly expensive step but runs once per trip at sync time
-        await (db.update(db.logRecords)
-              ..where((r) =>
-                  r.dayDate.equals(tripDate) &
-                  r.unixTime.isBetweenValues(rawTrip.startUnix, rawTrip.endUnix)))
-            .write(LogRecordsCompanion(tripId: Value(tripId)));
+        // Assign by the parser's own record indices. This used to back-fill
+        // with an UPDATE over dayDate + unixTime range, which also claimed any
+        // other session's records in that window — and without the dash's
+        // clock, timestamps are reconstructed relative to sync time, so
+        // sessions synced together overlap and one job's chart mixed in
+        // another's rows — and it
+        // dropped every row after midnight from a job that crossed it.
+        for (final i in rawTrip.recordIndices) {
+          records[i] = records[i].copyWith(tripId: Value(tripId));
+        }
       }
+
+      // ── 3. Insert log records, trip IDs included ─────────────────────────
+      await db.insertLogRecords(records);
 
       // ── 4. Record sync metadata ───────────────────────────────────────────
       await db.insertSyncSession(SyncSessionsCompanion(
@@ -127,6 +189,7 @@ class SessionRepository {
         rawCsvPath:               Value(rawCsvPath),
         bestEffortOffsetSeconds:  const Value(0),
         recordDate:               Value(parsed.records.first.dayDate.value),
+        csvHash:                  Value(csvHash),
       ));
     });
 
@@ -135,6 +198,38 @@ class SessionRepository {
     if (duplicate) return -1;
 
     return parsed.records.length;
+  }
+
+  /// Add this session's part of a job to the job it continues. The job keeps
+  /// its day, number, name, start and starting SoC. Ah and kWh are summed per
+  /// part: the shunt's counters may restart with the power, so the first and
+  /// last readings across a cut do not subtract.
+  Future<void> _extendTrip(
+    Trip trip,
+    RawTrip rawTrip,
+    List<LogRecordsCompanion> tripRecords,
+  ) async {
+    final part = StatsAggregator.buildTrip(
+      dayDate:     trip.dayDate,
+      tripNumber:  trip.tripNumber,
+      rawTrip:     rawTrip,
+      tripRecords: tripRecords,
+    );
+    final endUnix = rawTrip.endUnix > trip.endUnix ? rawTrip.endUnix : trip.endUnix;
+
+    await db.updateTrip(trip.id, TripsCompanion(
+      endUnix:           Value(endUnix),
+      durationSecs:      Value(endUnix - trip.startUnix),
+      ahConsumed:        Value(trip.ahConsumed  + part.ahConsumed.value),
+      kwhConsumed:       Value(trip.kwhConsumed + part.kwhConsumed.value),
+      peakRpm:           Value(_imax(trip.peakRpm,          part.peakRpm.value)),
+      peakMotorTempC:    Value(_max(trip.peakMotorTempC,    part.peakMotorTempC.value)),
+      peakInverterTempC: Value(_max(trip.peakInverterTempC, part.peakInverterTempC.value)),
+      peakBmsTempC:      Value(_max(trip.peakBmsTempC,      part.peakBmsTempC.value)),
+      peakCurrentA:      Value(_max(trip.peakCurrentA,      part.peakCurrentA.value)),
+      socEnd:            Value(rawTrip.socEnd ?? trip.socEnd),
+      openEnded:         Value(!rawTrip.closed),
+    ));
   }
 
   double _max(double a, double b) => a > b ? a : b;
