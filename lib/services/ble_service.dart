@@ -509,7 +509,7 @@ class BleService extends ChangeNotifier {
   // Guards against overlapping sync runs. _runSyncProtocol is reachable from
   // _connect, retrySync and stopTrip, so a reconnect part-way through a sync
   // used to start a second run alongside the first. Both would then pass the
-  // isAlreadySynced check for the same session and collide on insert.
+  // isAlreadySynced check for the same session and ingest it twice.
   bool _syncRunning = false;
 
   Future<void> _runSyncProtocol() async {
@@ -664,9 +664,12 @@ class BleService extends ChangeNotifier {
       return e is String && e.startsWith('ERR');
     }
 
-    // Save raw CSV to device storage
+    // Save raw CSV to device storage. Named by content as well as number: a
+    // new board or SD card reuses numbers, and must not overwrite the copy of
+    // an older session with the same one.
     final dir     = await getApplicationDocumentsDirectory();
-    final csvPath = p.join(dir.path, 'sessions', 'snap_$idStr.csv');
+    final tag     = SessionRepository.fingerprint(csvContent).substring(0, 12);
+    final csvPath = p.join(dir.path, 'sessions', 'snap_${idStr}_$tag.csv');
     await Directory(p.dirname(csvPath)).create(recursive: true);
     await File(csvPath).writeAsString(csvContent);
 

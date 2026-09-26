@@ -3,7 +3,11 @@
 // Orchestrates the full pipeline from raw CSV → database.
 // Called by the BLE sync service after a session file is fully received.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:collection/collection.dart';
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'database.dart';
 import 'csv_parser.dart';
@@ -13,9 +17,29 @@ class SessionRepository {
 
   SessionRepository(this.db);
 
-  /// Returns true if this ESP32 session has already been synced.
-  Future<bool> isAlreadySynced(int esp32SessionId) =>
-      db.isSessionSynced(esp32SessionId);
+  /// Content fingerprint of a downloaded session file.
+  static String fingerprint(String csvContent) =>
+      sha256.convert(utf8.encode(csvContent)).toString();
+
+  /// True if the phone already holds this session: the same number *and* the
+  /// same file. The number alone is not enough — a new board or a new SD card
+  /// counts from 1 again, and matching on it silently discarded every new
+  /// session under a number the phone had seen before. A closed session never
+  /// changes, so an identical file is a re-download (e.g. a lost DONE).
+  Future<bool> isAlreadySynced(int esp32SessionId, String csvHash) async {
+    for (final s in await db.getSyncSessionsByNumber(esp32SessionId)) {
+      if (s.csvHash != null) {
+        if (s.csvHash == csvHash) return true;
+        continue;
+      }
+      // Synced before fingerprints were kept: compare with the saved copy.
+      // Without one there is no telling, so keep the old rule and skip.
+      final saved = File(s.rawCsvPath);
+      if (!await saved.exists()) return true;
+      if (fingerprint(await saved.readAsString()) == csvHash) return true;
+    }
+    return false;
+  }
 
   /// Full pipeline: parse CSV, insert all records, build day and trip summaries.
   /// Returns the number of log records inserted, or 0 if nothing was parsed.
@@ -27,7 +51,8 @@ class SessionRepository {
     required int syncedAtUnix,
   }) async {
     // Guard against double-ingestion
-    if (await isAlreadySynced(esp32SessionId)) return -1;
+    final csvHash = fingerprint(csvContent);
+    if (await isAlreadySynced(esp32SessionId, csvHash)) return -1;
 
     // Parse CSV into records and raw trip markers
     final parsed = CsvParser.parse(
@@ -42,15 +67,14 @@ class SessionRepository {
     final recordsByDate = groupBy(parsed.records, (r) => r.dayDate.value);
 
     // The guard above is check-then-act: two overlapping sync runs can both pass
-    // it, then both reach step 4 and the second dies on the esp32SessionId
-    // primary key. A thrown ingest error makes _downloadSession skip DONE, so
-    // the device never advances last_synced and re-offers the session forever.
+    // it and would both ingest the session, so it is repeated inside the
+    // transaction.
     bool duplicate = false;
 
     await db.transaction(() async {
       // Re-check atomically. Drift serialises transactions, so if a concurrent
       // run beat us here, its sync-session row is already committed.
-      if (await isAlreadySynced(esp32SessionId)) {
+      if (await isAlreadySynced(esp32SessionId, csvHash)) {
         duplicate = true;
         return;
       }
@@ -147,6 +171,7 @@ class SessionRepository {
         rawCsvPath:               Value(rawCsvPath),
         bestEffortOffsetSeconds:  const Value(0),
         recordDate:               Value(parsed.records.first.dayDate.value),
+        csvHash:                  Value(csvHash),
       ));
     });
 

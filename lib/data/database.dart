@@ -23,6 +23,9 @@ part 'database.g.dart';
 
 // Internal sync bookkeeping — one row per ESP32 session file downloaded
 class SyncSessions extends Table {
+  // The dash's session number is not unique on its own: a new board or a new
+  // SD card starts counting from 1 again. A session is its number plus csvHash.
+  IntColumn get id             => integer().autoIncrement()();
   IntColumn get esp32SessionId => integer()();           // ESP32 session_XXXX number
   DateTimeColumn get syncedAt  => dateTime()();          // when phone downloaded it
   TextColumn get rawCsvPath    => text()();              // path to original CSV on device
@@ -30,9 +33,9 @@ class SyncSessions extends Table {
   // bestEffortOffsetSeconds used to reconstruct timestamps for records
   // where unix_offset was not set during recording (phone never connected that session)
   TextColumn get recordDate => text().nullable()();     // YYYY-MM-DD, date of first record
-
-  @override
-  Set<Column> get primaryKey => {esp32SessionId};
+  // SHA-256 of the downloaded CSV. Tells a re-download of a session apart from
+  // a different session reusing its number. Null for rows synced before v10.
+  TextColumn get csvHash    => text().nullable()();
 }
 
 // One row per calendar date that has at least one record
@@ -118,7 +121,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -151,6 +154,14 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await m.addColumn(trips, trips.openEnded);
       }
+      if (from < 10) {
+        // Primary key moves from esp32SessionId to a row id, so the table is
+        // rebuilt; existing rows keep their data and get ids in order.
+        await m.alterTable(TableMigration(
+          syncSessions,
+          newColumns: [syncSessions.id, syncSessions.csvHash],
+        ));
+      }
     },
   );
 
@@ -173,12 +184,12 @@ class AppDatabase extends _$AppDatabase {
     }).toList();
   }
 
-  Future<bool> isSessionSynced(int esp32SessionId) async {
-    final row = await (select(syncSessions)
-          ..where((s) => s.esp32SessionId.equals(esp32SessionId)))
-        .getSingleOrNull();
-    return row != null;
-  }
+  // Every stored session with this number — more than one once a new board
+  // or card has reused it.
+  Future<List<SyncSession>> getSyncSessionsByNumber(int esp32SessionId) =>
+      (select(syncSessions)
+            ..where((s) => s.esp32SessionId.equals(esp32SessionId)))
+          .get();
 
   Future<void> insertSyncSession(SyncSessionsCompanion session) =>
       into(syncSessions).insert(session);

@@ -4,6 +4,8 @@
 //
 // Run with: flutter test test/data/session_repository_test.dart
 
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:somerset_ev_telematics/data/database.dart';
@@ -123,6 +125,65 @@ void main() {
       final trips = await db.select(db.trips).get();
       expect(trips, hasLength(2));
       expect(trips.where((t) => t.openEnded), isEmpty);
+    });
+  });
+
+  group('session numbers reused by a new board or SD card', () {
+    test('a different file under a known number is a new session', () async {
+      await repo.ingestSession(esp32SessionId: 1,
+          csvContent: _session(20, 1111, 5, 15),
+          rawCsvPath: 'a', syncedAtUnix: 1790000000);
+      final n = await repo.ingestSession(esp32SessionId: 1,
+          csvContent: _session(20, 2222, 5, 15),
+          rawCsvPath: 'b', syncedAtUnix: 1790003600);
+
+      expect(n, equals(20));
+      expect(await db.getSyncSessionsByNumber(1), hasLength(2));
+      expect(await db.select(db.trips).get(), hasLength(2));
+    });
+
+    test('the same file again is a re-download and is skipped', () async {
+      final csv = _session(20, 1111, 5, 15);
+      await repo.ingestSession(esp32SessionId: 1, csvContent: csv,
+          rawCsvPath: 'a', syncedAtUnix: 1790000000);
+      final n = await repo.ingestSession(esp32SessionId: 1, csvContent: csv,
+          rawCsvPath: 'a', syncedAtUnix: 1790003600);
+
+      expect(n, equals(-1));
+      expect(await db.getSyncSessionsByNumber(1), hasLength(1));
+    });
+
+    group('rows synced before fingerprints', () {
+      late Directory dir;
+      setUp(() => dir = Directory.systemTemp.createTempSync('sessions'));
+      tearDown(() => dir.deleteSync(recursive: true));
+
+      // A pre-v10 row: no csvHash, only the saved copy on disk.
+      Future<void> legacy(String? savedCsv) async {
+        final path = '${dir.path}/snap_0001.csv';
+        if (savedCsv != null) File(path).writeAsStringSync(savedCsv);
+        await db.insertSyncSession(SyncSessionsCompanion.insert(
+          esp32SessionId: 1,
+          syncedAt: DateTime(2026),
+          rawCsvPath: path,
+          bestEffortOffsetSeconds: 0,
+        ));
+      }
+
+      test('match by the saved copy', () async {
+        final csv = _session(20, 1111, 5, 15);
+        await legacy(csv);
+        expect(await repo.isAlreadySynced(1, SessionRepository.fingerprint(csv)),
+               isTrue);
+        expect(await repo.isAlreadySynced(1,
+                   SessionRepository.fingerprint(_session(20, 2222, 5, 15))),
+               isFalse);
+      });
+
+      test('without a saved copy keep skipping, as before', () async {
+        await legacy(null);
+        expect(await repo.isAlreadySynced(1, 'anything'), isTrue);
+      });
     });
   });
 }
