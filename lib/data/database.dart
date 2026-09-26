@@ -111,6 +111,9 @@ class LogRecords extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
+  // For tests: e.g. NativeDatabase.memory().
+  AppDatabase.forTesting(super.e);
+
   @override
   int get schemaVersion => 8;
 

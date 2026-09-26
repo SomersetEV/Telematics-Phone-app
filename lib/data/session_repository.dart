@@ -55,10 +55,10 @@ class SessionRepository {
         return;
       }
 
-      // ── 1. Insert raw log records (without trip IDs yet) ─────────────────
-      await db.insertLogRecords(parsed.records);
+      // Trip IDs are stamped onto this copy before the records are inserted.
+      final records = List<LogRecordsCompanion>.of(parsed.records);
 
-      // ── 2. Upsert day summary rows ────────────────────────────────────────
+      // ── 1. Upsert day summary rows ────────────────────────────────────────
       for (final entry in recordsByDate.entries) {
         final date        = entry.key;
         final dayRecords  = entry.value;
@@ -88,7 +88,7 @@ class SessionRepository {
         }
       }
 
-      // ── 3. Insert trips and update record trip IDs ────────────────────────
+      // ── 2. Insert trips and assign their records ─────────────────────────
       // Group raw trips by date
       for (final rawTrip in parsed.rawTrips) {
         if (parsed.records.isEmpty) continue;
@@ -110,15 +110,19 @@ class SessionRepository {
 
         final tripId = await db.insertTrip(tripCompanion);
 
-        // Back-fill tripId on the log records within this trip
-        // We need the actual DB row IDs — query the just-inserted records by tick range
-        // This is the one slightly expensive step but runs once per trip at sync time
-        await (db.update(db.logRecords)
-              ..where((r) =>
-                  r.dayDate.equals(tripDate) &
-                  r.unixTime.isBetweenValues(rawTrip.startUnix, rawTrip.endUnix)))
-            .write(LogRecordsCompanion(tripId: Value(tripId)));
+        // Assign by the parser's own record indices. This used to back-fill
+        // with an UPDATE over dayDate + unixTime range, which also claimed any
+        // other session's records in that window — and timestamps are
+        // reconstructed relative to sync time, so sessions synced together
+        // overlap and one job's chart mixed in another's rows — and it
+        // dropped every row after midnight from a job that crossed it.
+        for (final i in rawTrip.recordIndices) {
+          records[i] = records[i].copyWith(tripId: Value(tripId));
+        }
       }
+
+      // ── 3. Insert log records, trip IDs included ─────────────────────────
+      await db.insertLogRecords(records);
 
       // ── 4. Record sync metadata ───────────────────────────────────────────
       await db.insertSyncSession(SyncSessionsCompanion(

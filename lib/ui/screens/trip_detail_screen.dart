@@ -117,7 +117,9 @@ class _TripDetailBody extends StatelessWidget {
         _ChartCard(
           title:   'Pack Voltage',
           colour:  Colors.cyanAccent,
-          spots:   _toSpots((r) => r.packVoltageV),
+          // packVoltageV is the ISA shunt reading, which SNAP1 does not
+          // carry, so it is 0 for every synced record; the BMS value is real.
+          spots:   _toSpots((r) => r.packVoltageBmsMv / 1000.0),
           unit:    'V',
           records: records,
         ),

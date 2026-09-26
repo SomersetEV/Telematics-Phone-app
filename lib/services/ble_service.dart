@@ -119,6 +119,15 @@ class BleService extends ChangeNotifier {
   // Sessions to sync — populated from LIST response
   final List<int> _pendingSessions = [];
 
+  // When the device last sent anything; a GET fails only once this goes stale.
+  DateTime _lastRxAt = DateTime.now();
+
+  // A fixed 2-minute limit on the whole GET failed every session too big to
+  // move in that time (a long day, or any session over an iOS-sized MTU), and
+  // it failed again on every later sync. The device streams steadily until
+  // END, so only a stall is a failure.
+  static const Duration _transferIdleTimeout = Duration(seconds: 20);
+
   // ── Scan and connect ───────────────────────────────────────────────────────
 
   Future<void> startScan() async {
@@ -127,43 +136,95 @@ class BleService extends ChangeNotifier {
     _setState(BleConnectionState.scanning);
     lastError = null;
 
-    // Stop any existing scan
-    await FlutterBluePlus.stopScan();
+    try {
+      // Stop any existing scan
+      await FlutterBluePlus.stopScan();
 
-    // Listen for scan results — store subscription so it can be cancelled
-    _scanSub = FlutterBluePlus.scanResults.listen((results) async {
-      for (final result in results) {
-        if (result.device.platformName == _deviceName) {
-          _scanSub?.cancel();
-          _scanSub = null;
-          await FlutterBluePlus.stopScan();
-          await _connect(result.device);
-          return;
+      // Listen for scan results — store subscription so it can be cancelled
+      _scanSub = FlutterBluePlus.scanResults.listen((results) async {
+        for (final result in results) {
+          if (result.device.platformName == _deviceName) {
+            _scanSub?.cancel();
+            _scanSub = null;
+            await FlutterBluePlus.stopScan();
+            await _connect(result.device);
+            return;
+          }
         }
-      }
-    });
+      });
 
-    // Scan filtering by NUS service UUID so we only see our device
-    await FlutterBluePlus.startScan(
-      withServices: [Guid(_nusSvcUuid)],
-      timeout:      const Duration(seconds: 15),
-    );
+      // Scan filtering by NUS service UUID so we only see our device
+      await FlutterBluePlus.startScan(
+        withServices: [Guid(_nusSvcUuid)],
+        timeout:      const Duration(seconds: 15),
+      );
+    } catch (e) {
+      // Bluetooth off or permission revoked. Uncaught, this left the state on
+      // scanning with the button disabled until the app was restarted.
+      _scanSub?.cancel();
+      _scanSub = null;
+      lastError = 'Could not scan: $e';
+      _setState(BleConnectionState.disconnected);
+      return;
+    }
 
-    // If scan times out without finding device
+    // If scan times out without finding device. _scanSub is cleared once the
+    // device is found, so a later reconnect (which also shows "scanning") is
+    // not mistaken for this scan failing.
     await Future.delayed(const Duration(seconds: 16));
-    if (connectionState == BleConnectionState.scanning) {
+    if (connectionState == BleConnectionState.scanning && _scanSub != null) {
+      _scanSub?.cancel();
+      _scanSub = null;
       _setState(BleConnectionState.disconnected);
       lastError = 'Tractor not found — is it powered on?';
       notifyListeners();
     }
   }
 
+  // Set while _connect is setting up a link. A scan result and a scheduled
+  // _reconnect can both call _connect; two overlapping setups each attached a
+  // notification listener, and every line (CSV rows included) was then
+  // processed twice.
+  bool _connecting = false;
+
   Future<void> _connect(BluetoothDevice device) async {
+    if (_connecting) return;
+    _connecting = true;
+    try {
+      await _connectAndSetUp(device);
+    } finally {
+      _connecting = false;
+    }
+  }
+
+  Future<void> _connectAndSetUp(BluetoothDevice device) async {
     _setState(BleConnectionState.connecting);
     _device     = device;
     _lastDevice = device;
 
-    // Watch for unexpected disconnection
+    try {
+      await device.connect(timeout: const Duration(seconds: 10));
+    } catch (e) {
+      if (_reconnectAttempts > 0) {
+        // An automatic reconnect, likely while the tractor is still booting.
+        // Try again, up to the limit, rather than giving up after one go.
+        _handleDisconnect();
+        return;
+      }
+      lastError = 'Connection failed: $e';
+      _setState(BleConnectionState.disconnected);
+      notifyListeners();
+      return;
+    }
+
+    // Watch for unexpected disconnection — only from here, once connected.
+    // connectionState replays the device's last known state to each new
+    // listener, and before connect() that is `disconnected`. Subscribing
+    // earlier ran _handleDisconnect at the start of every connection: it
+    // cancelled this subscription (so a real drop later went unnoticed and the
+    // app kept showing "Connected"), nulled _device (so Disconnect did
+    // nothing), and scheduled a reconnect that could race this setup.
+    await _stateSub?.cancel();
     _stateSub = device.connectionState.listen((state) {
       if (state == BluetoothConnectionState.disconnected) {
         _handleDisconnect();
@@ -171,38 +232,43 @@ class BleService extends ChangeNotifier {
     });
 
     try {
-      await device.connect(timeout: const Duration(seconds: 10));
+      // Negotiate MTU — Android will typically accept 512
+      try {
+        await device.requestMtu(_targetMtu);
+      } catch (_) {
+        // MTU negotiation failure is non-fatal — we'll use smaller chunks
+      }
+
+      // Discover services
+      final services = await device.discoverServices();
+      final nusSvc   = services.firstWhere(
+        (s) => s.serviceUuid == Guid(_nusSvcUuid),
+        orElse: () => throw Exception('NUS service not found'),
+      );
+
+      _rxChar = nusSvc.characteristics.firstWhere(
+        (c) => c.characteristicUuid == Guid(_nusRxUuid),
+      );
+      _txChar = nusSvc.characteristics.firstWhere(
+        (c) => c.characteristicUuid == Guid(_nusTxUuid),
+      );
+
+      // Subscribe to TX notifications
+      await _txChar!.setNotifyValue(true);
+      await _notifySub?.cancel();
+      _notifySub = _txChar!.onValueReceived.listen(_onNotification);
     } catch (e) {
-      lastError = 'Connection failed: $e';
-      _setState(BleConnectionState.disconnected);
+      // Uncaught, any of these left the app on "Connecting..." for good.
+      if (_device == null) {
+        // The link dropped mid-setup and _handleDisconnect has already taken
+        // over (reconnecting, or showing disconnected).
+        return;
+      }
+      disconnect();
+      lastError = 'Connection setup failed: $e';
       notifyListeners();
       return;
     }
-
-    // Negotiate MTU — Android will typically accept 512
-    try {
-      await device.requestMtu(_targetMtu);
-    } catch (_) {
-      // MTU negotiation failure is non-fatal — we'll use smaller chunks
-    }
-
-    // Discover services
-    final services = await device.discoverServices();
-    final nusSvc   = services.firstWhere(
-      (s) => s.serviceUuid == Guid(_nusSvcUuid),
-      orElse: () => throw Exception('NUS service not found'),
-    );
-
-    _rxChar = nusSvc.characteristics.firstWhere(
-      (c) => c.characteristicUuid == Guid(_nusRxUuid),
-    );
-    _txChar = nusSvc.characteristics.firstWhere(
-      (c) => c.characteristicUuid == Guid(_nusTxUuid),
-    );
-
-    // Subscribe to TX notifications
-    await _txChar!.setNotifyValue(true);
-    _notifySub = _txChar!.onValueReceived.listen(_onNotification);
 
     _reconnectAttempts = 0;
     lastError = null;
@@ -266,6 +332,7 @@ class BleService extends ChangeNotifier {
   // ── Incoming notification handler ──────────────────────────────────────────
 
   void _onNotification(List<int> value) {
+    _lastRxAt = DateTime.now();
     final text = utf8.decode(value, allowMalformed: true);
     _incomingBuffer.write(text);
 
@@ -479,11 +546,13 @@ class BleService extends ChangeNotifier {
         }
       }
       _pendingSessions.clear();
-      _pendingSessions.addAll(_parseListResponse(listResponse!));
+      // Ascending, because DONE moves a high-water mark on the device: ACKing
+      // a later session before an earlier one has landed hides the earlier one
+      // from every future LIST.
+      _pendingSessions.addAll(_parseListResponse(listResponse!)..sort());
 
       if (_pendingSessions.isEmpty) {
-        await _queryTripState();
-        _setState(BleConnectionState.connected);
+        await _finishSync();
         return;
       }
 
@@ -500,7 +569,10 @@ class BleService extends ChangeNotifier {
         );
         notifyListeners();
 
-        await _downloadSession(sessionId);
+        // Stop at a transfer that did not complete, for the same reason:
+        // a DONE for any later session would hide this one for good. It is
+        // fetched again, first, on the next sync.
+        if (!await _downloadSession(sessionId)) break;
       }
 
     } catch (e) {
@@ -514,9 +586,23 @@ class BleService extends ChangeNotifier {
       _syncRunning = false;
     }
 
+    await _finishSync();
+  }
+
+  bool get _linkUp => _rxChar != null;
+
+  Future<void> _finishSync() async {
     syncProgress = null;
+    // A disconnect part-way through the sync has already moved the state on
+    // (scanning for the reconnect, or disconnected). Setting `connected` over
+    // it showed a dead link as live, the Start/End Job button then failed with
+    // "Not connected", and _reconnect saw a non-scanning state and gave up.
+    if (!_linkUp) {
+      notifyListeners();
+      return;
+    }
     await _queryTripState();
-    _setState(BleConnectionState.connected);
+    if (_linkUp) _setState(BleConnectionState.connected);
   }
 
   Future<void> _queryTripState() async {
@@ -535,17 +621,20 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  Future<void> _downloadSession(int sessionId) async {
+  /// Returns false when the transfer did not complete and the sync should stop
+  /// (see _runSyncProtocol); true once the session is dealt with, including a
+  /// session the device refused to serve or the phone could not ingest.
+  Future<bool> _downloadSession(int sessionId) async {
     final idStr = sessionId.toString().padLeft(4, '0');
 
     // Send GET and wait for full file (resolves when END marker arrives)
     String csvContent;
     try {
-      csvContent = await _sendAndWait(
-        'GET $sessionId',
-        _SyncState.waitingData,
-        timeout: const Duration(minutes: 2),
-      );
+      _syncState = _SyncState.waitingData;
+      final waiter = _responseWaiter = Completer<String>();
+      _lastRxAt = DateTime.now();
+      await _sendCommand('GET $sessionId');
+      csvContent = await _awaitTransfer(waiter);
     } catch (e) {
       debugPrint('GET $idStr failed: $e');
       // Transfer aborted mid-state — drop back to idle and discard any partial
@@ -556,7 +645,10 @@ class BleService extends ChangeNotifier {
       // stuck sync look like "connected, synced, no jobs" with nothing to go on.
       lastSyncResult = 'Session $idStr: download failed — $e';
       notifyListeners();
-      return;
+      // An ERR reply is the device refusing this session (e.g. not_found);
+      // later sessions can still go. Anything else is a stalled or dropped
+      // transfer that should be retried before anything after it is ACKed.
+      return e is String && e.startsWith('ERR');
     }
 
     // Save raw CSV to device storage
@@ -581,7 +673,7 @@ class BleService extends ChangeNotifier {
       // Don't send DONE — keep the session available for retry. State still has
       // to go back to idle, or the next command inherits this waitingEnd.
       _resetProtocolState();
-      return;
+      return true;
     }
 
     if (recordCount < 0) {
@@ -619,6 +711,24 @@ class BleService extends ChangeNotifier {
       lastSyncResult = 'Session $idStr: not acknowledged ($doneResp) '
                        '— will re-sync next time';
       notifyListeners();
+    }
+    return true;
+  }
+
+  /// Wait for a GET to finish, failing only if the device goes quiet for
+  /// [_transferIdleTimeout]. Errors on [waiter] (ERR, Disconnected) propagate.
+  Future<String> _awaitTransfer(Completer<String> waiter) async {
+    while (true) {
+      try {
+        return await waiter.future.timeout(const Duration(seconds: 1));
+      } on TimeoutException {
+        if (DateTime.now().difference(_lastRxAt) > _transferIdleTimeout) {
+          throw TimeoutException(
+            'no data from the tractor for ${_transferIdleTimeout.inSeconds}s',
+            _transferIdleTimeout,
+          );
+        }
+      }
     }
   }
 
