@@ -9,8 +9,26 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'database.dart';
 import 'csv_parser.dart';
+
+/// The saved copy of a session CSV, from the path stored at sync time.
+///
+/// Paths are stored absolute, and iOS moves the app's Documents directory on
+/// every app update or reinstall, so a stored path goes stale even though the
+/// file is still there. Fall back to the same name under today's directory.
+Future<File> resolveSavedCsv(String storedPath) async {
+  final stored = File(storedPath);
+  if (await stored.exists()) return stored;
+  try {
+    final dir = await getApplicationDocumentsDirectory();
+    return File(p.join(dir.path, 'sessions', p.basename(storedPath)));
+  } catch (_) {
+    return stored;   // no path_provider (unit tests)
+  }
+}
 
 class SessionRepository {
   final AppDatabase db;
@@ -34,7 +52,7 @@ class SessionRepository {
       }
       // Synced before fingerprints were kept: compare with the saved copy.
       // Without one there is no telling, so keep the old rule and skip.
-      final saved = File(s.rawCsvPath);
+      final saved = await resolveSavedCsv(s.rawCsvPath);
       if (!await saved.exists()) return true;
       if (fingerprint(await saved.readAsString()) == csvHash) return true;
     }

@@ -115,7 +115,8 @@ class CsvParser {
     for (final line in dataLines.reversed) {
       if (line.startsWith('TRIP_')) continue;
       final p = line.split(',');
-      if (p.length < 2) continue;
+      // Same rule as the rows kept below, so a truncated row cannot set the end.
+      if (p.length < 14) continue;
       final tick = int.tryParse(p[1]) ?? 0;
       if (tick <= 0) continue;
       if (maxTickMs == 0) maxTickMs = tick;

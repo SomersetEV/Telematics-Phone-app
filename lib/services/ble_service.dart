@@ -546,8 +546,11 @@ class BleService extends ChangeNotifier {
             timeout: const Duration(seconds: 30),
           );
           break;
-        } on TimeoutException {
-          if (attempt == 3) rethrow;
+        } catch (e) {
+          // Retry an ERR as well as a timeout: straight after a power cut the
+          // phone can reconnect while the dash is still mounting its card,
+          // and LIST answers "ERR no_sd" for those few seconds.
+          if (attempt == 3 || !_linkUp) rethrow;
           await Future.delayed(const Duration(seconds: 2));
         }
       }

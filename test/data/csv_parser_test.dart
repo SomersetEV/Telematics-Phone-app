@@ -317,6 +317,15 @@ void main() {
              equals([1790000000, 1790000001, 1790000002]));
     });
 
+    test('a truncated last row does not move the fallback end point', () {
+      final r = _parse([
+        _row(tick: 10000),
+        _row(tick: 20000),
+        'SNAP1,99999999,8',
+      ], syncedAtUnix: 5000);
+      expect(r.session.records.last.unixTime.value, equals(5000));
+    });
+
     test('falls back to the sync time while the clock was never set', () {
       final r = _parse([p4Row(10000, 0), p4Row(20000, 0)], syncedAtUnix: 5000);
       expect(r.session.records.last.unixTime.value, equals(5000));
