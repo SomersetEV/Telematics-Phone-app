@@ -89,9 +89,26 @@ class SessionRepository {
       }
 
       // ── 2. Insert trips and assign their records ─────────────────────────
-      // Group raw trips by date
+      // A job left open by a power cut carries on in this session if the dash
+      // resumed it (the first trip opens the file). Either way no older job
+      // stays open past this session: sessions are ingested in order, and the
+      // dash always resumes a running job at the very top of the next one.
+      final openTrips = await db.getOpenTrips();
+      final Trip? carryInto = openTrips.isNotEmpty ? openTrips.first : null;
+      await db.closeOpenTrips();
+
       for (final rawTrip in parsed.rawTrips) {
         if (parsed.records.isEmpty) continue;
+
+        final tripRecords = rawTrip.recordIndices.map((i) => parsed.records[i]).toList();
+
+        if (rawTrip.continuesPrevious && carryInto != null) {
+          await _extendTrip(carryInto, rawTrip, tripRecords);
+          for (final i in rawTrip.recordIndices) {
+            records[i] = records[i].copyWith(tripId: Value(carryInto.id));
+          }
+          continue;
+        }
 
         final tripDate = parsed.records[rawTrip.recordIndices.first].dayDate.value;
 
@@ -99,22 +116,21 @@ class SessionRepository {
         final existingTrips = await db.getTripsForDay(tripDate);
         final tripNumber    = existingTrips.length + 1;
 
-        final tripRecords   = rawTrip.recordIndices.map((i) => parsed.records[i]).toList();
-
         final tripCompanion = StatsAggregator.buildTrip(
           dayDate:     tripDate,
           tripNumber:  tripNumber,
           rawTrip:     rawTrip,
           tripRecords: tripRecords,
-        );
+        ).copyWith(openEnded: Value(!rawTrip.closed));
 
         final tripId = await db.insertTrip(tripCompanion);
 
         // Assign by the parser's own record indices. This used to back-fill
         // with an UPDATE over dayDate + unixTime range, which also claimed any
-        // other session's records in that window — and timestamps are
-        // reconstructed relative to sync time, so sessions synced together
-        // overlap and one job's chart mixed in another's rows — and it
+        // other session's records in that window — and without the dash's
+        // clock, timestamps are reconstructed relative to sync time, so
+        // sessions synced together overlap and one job's chart mixed in
+        // another's rows — and it
         // dropped every row after midnight from a job that crossed it.
         for (final i in rawTrip.recordIndices) {
           records[i] = records[i].copyWith(tripId: Value(tripId));
@@ -139,6 +155,38 @@ class SessionRepository {
     if (duplicate) return -1;
 
     return parsed.records.length;
+  }
+
+  /// Add this session's part of a job to the job it continues. The job keeps
+  /// its day, number, name, start and starting SoC. Ah and kWh are summed per
+  /// part: the shunt's counters may restart with the power, so the first and
+  /// last readings across a cut do not subtract.
+  Future<void> _extendTrip(
+    Trip trip,
+    RawTrip rawTrip,
+    List<LogRecordsCompanion> tripRecords,
+  ) async {
+    final part = StatsAggregator.buildTrip(
+      dayDate:     trip.dayDate,
+      tripNumber:  trip.tripNumber,
+      rawTrip:     rawTrip,
+      tripRecords: tripRecords,
+    );
+    final endUnix = rawTrip.endUnix > trip.endUnix ? rawTrip.endUnix : trip.endUnix;
+
+    await db.updateTrip(trip.id, TripsCompanion(
+      endUnix:           Value(endUnix),
+      durationSecs:      Value(endUnix - trip.startUnix),
+      ahConsumed:        Value(trip.ahConsumed  + part.ahConsumed.value),
+      kwhConsumed:       Value(trip.kwhConsumed + part.kwhConsumed.value),
+      peakRpm:           Value(_imax(trip.peakRpm,          part.peakRpm.value)),
+      peakMotorTempC:    Value(_max(trip.peakMotorTempC,    part.peakMotorTempC.value)),
+      peakInverterTempC: Value(_max(trip.peakInverterTempC, part.peakInverterTempC.value)),
+      peakBmsTempC:      Value(_max(trip.peakBmsTempC,      part.peakBmsTempC.value)),
+      peakCurrentA:      Value(_max(trip.peakCurrentA,      part.peakCurrentA.value)),
+      socEnd:            Value(rawTrip.socEnd ?? trip.socEnd),
+      openEnded:         Value(!rawTrip.closed),
+    ));
   }
 
   double _max(double a, double b) => a > b ? a : b;

@@ -70,6 +70,9 @@ class Trips extends Table {
   TextColumn get name         => text().nullable()();  // user-assigned job name
   IntColumn get socStart      => integer().nullable()();  // SoC% at TRIP_START
   IntColumn get socEnd        => integer().nullable()();  // SoC% at TRIP_END
+  // The session ended without TRIP_END (a power cut). The dash keeps the job
+  // running across the cut, so the next session's trip is merged into this one.
+  BoolColumn get openEnded    => boolean().withDefault(const Constant(false))();
 }
 
 // Individual 1Hz log records — snapshots decoded from raw CAN frames
@@ -115,7 +118,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -144,6 +147,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 8) {
         await customStatement(
             'ALTER TABLE log_records ADD COLUMN charger_temp_c REAL NOT NULL DEFAULT 0.0');
+      }
+      if (from < 9) {
+        await m.addColumn(trips, trips.openEnded);
       }
     },
   );
@@ -202,6 +208,20 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> insertTrip(TripsCompanion trip) =>
       into(trips).insert(trip);
+
+  // Jobs cut off by a power cut and not yet continued or ended, newest first.
+  Future<List<Trip>> getOpenTrips() =>
+      (select(trips)
+            ..where((t) => t.openEnded.equals(true))
+            ..orderBy([(t) => OrderingTerm.desc(t.id)]))
+          .get();
+
+  Future<void> closeOpenTrips() =>
+      (update(trips)..where((t) => t.openEnded.equals(true)))
+          .write(const TripsCompanion(openEnded: Value(false)));
+
+  Future<void> updateTrip(int tripId, TripsCompanion trip) =>
+      (update(trips)..where((t) => t.id.equals(tripId))).write(trip);
 
   Future<void> updateTripName(int tripId, String? name) =>
       (update(trips)..where((t) => t.id.equals(tripId)))

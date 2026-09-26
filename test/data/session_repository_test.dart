@@ -70,4 +70,59 @@ void main() {
     expect(all, hasLength(20));
     expect(all.where((r) => r.tripId != null), hasLength(10));
   });
+
+  group('job across a power cut', () {
+    // Session 1: the job starts, then the power is cut (no TRIP_END).
+    final beforeCut = [
+      _header,
+      _row(1000, 1000),
+      'TRIP_START,,,,,,,,,,,,,,,',
+      _row(2000, 1000),
+      _row(3000, 1000),
+    ].join('\n');
+    // Session 2: the dash resumes the job at the top of the file.
+    final afterCut = [
+      _header,
+      'TRIP_START,,,,,,,,,,,,,,,',
+      _row(1000, 3000),
+      _row(2000, 3000),
+      _row(3000, 3000),
+      'TRIP_END,0,0,0,80,80,0,0,0,0,0,0,,,,',
+      _row(4000, 0),
+    ].join('\n');
+
+    test('is one job holding both sessions\' rows', () async {
+      await repo.ingestSession(esp32SessionId: 1, csvContent: beforeCut,
+          rawCsvPath: 'a', syncedAtUnix: 1790000000);
+      await repo.ingestSession(esp32SessionId: 2, csvContent: afterCut,
+          rawCsvPath: 'b', syncedAtUnix: 1790003600);
+
+      final trip = (await db.select(db.trips).get()).single;
+      expect(trip.openEnded, isFalse);
+      expect(trip.peakRpm, equals(3000));
+      expect(trip.durationSecs, equals(trip.endUnix - trip.startUnix));
+      expect(trip.endUnix - trip.startUnix, greaterThan(3000));  // spans the cut
+
+      final rows = await db.getRecordsForTrip(trip.id);
+      expect(rows, hasLength(5));
+    });
+
+    test('stays open until the next session is in', () async {
+      await repo.ingestSession(esp32SessionId: 1, csvContent: beforeCut,
+          rawCsvPath: 'a', syncedAtUnix: 1790000000);
+      expect((await db.select(db.trips).get()).single.openEnded, isTrue);
+    });
+
+    test('a next session that does not resume it ends it', () async {
+      await repo.ingestSession(esp32SessionId: 1, csvContent: beforeCut,
+          rawCsvPath: 'a', syncedAtUnix: 1790000000);
+      await repo.ingestSession(esp32SessionId: 2,
+          csvContent: _session(20, 1500, 5, 15),
+          rawCsvPath: 'b', syncedAtUnix: 1790003600);
+
+      final trips = await db.select(db.trips).get();
+      expect(trips, hasLength(2));
+      expect(trips.where((t) => t.openEnded), isEmpty);
+    });
+  });
 }

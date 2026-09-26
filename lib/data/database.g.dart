@@ -971,6 +971,16 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
   late final GeneratedColumn<int> socEnd = GeneratedColumn<int>(
       'soc_end', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _openEndedMeta =
+      const VerificationMeta('openEnded');
+  @override
+  late final GeneratedColumn<bool> openEnded = GeneratedColumn<bool>(
+      'open_ended', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("open_ended" IN (0, 1))'),
+      defaultValue: const Constant(false));
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -988,7 +998,8 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
         peakCurrentA,
         name,
         socStart,
-        socEnd
+        socEnd,
+        openEnded
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1101,6 +1112,10 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
       context.handle(_socEndMeta,
           socEnd.isAcceptableOrUnknown(data['soc_end']!, _socEndMeta));
     }
+    if (data.containsKey('open_ended')) {
+      context.handle(_openEndedMeta,
+          openEnded.isAcceptableOrUnknown(data['open_ended']!, _openEndedMeta));
+    }
     return context;
   }
 
@@ -1142,6 +1157,8 @@ class $TripsTable extends Trips with TableInfo<$TripsTable, Trip> {
           .read(DriftSqlType.int, data['${effectivePrefix}soc_start']),
       socEnd: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}soc_end']),
+      openEnded: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}open_ended'])!,
     );
   }
 
@@ -1168,6 +1185,7 @@ class Trip extends DataClass implements Insertable<Trip> {
   final String? name;
   final int? socStart;
   final int? socEnd;
+  final bool openEnded;
   const Trip(
       {required this.id,
       required this.dayDate,
@@ -1184,7 +1202,8 @@ class Trip extends DataClass implements Insertable<Trip> {
       required this.peakCurrentA,
       this.name,
       this.socStart,
-      this.socEnd});
+      this.socEnd,
+      required this.openEnded});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1210,6 +1229,7 @@ class Trip extends DataClass implements Insertable<Trip> {
     if (!nullToAbsent || socEnd != null) {
       map['soc_end'] = Variable<int>(socEnd);
     }
+    map['open_ended'] = Variable<bool>(openEnded);
     return map;
   }
 
@@ -1234,6 +1254,7 @@ class Trip extends DataClass implements Insertable<Trip> {
           : Value(socStart),
       socEnd:
           socEnd == null && nullToAbsent ? const Value.absent() : Value(socEnd),
+      openEnded: Value(openEnded),
     );
   }
 
@@ -1257,6 +1278,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       name: serializer.fromJson<String?>(json['name']),
       socStart: serializer.fromJson<int?>(json['socStart']),
       socEnd: serializer.fromJson<int?>(json['socEnd']),
+      openEnded: serializer.fromJson<bool>(json['openEnded']),
     );
   }
   @override
@@ -1279,6 +1301,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       'name': serializer.toJson<String?>(name),
       'socStart': serializer.toJson<int?>(socStart),
       'socEnd': serializer.toJson<int?>(socEnd),
+      'openEnded': serializer.toJson<bool>(openEnded),
     };
   }
 
@@ -1298,7 +1321,8 @@ class Trip extends DataClass implements Insertable<Trip> {
           double? peakCurrentA,
           Value<String?> name = const Value.absent(),
           Value<int?> socStart = const Value.absent(),
-          Value<int?> socEnd = const Value.absent()}) =>
+          Value<int?> socEnd = const Value.absent(),
+          bool? openEnded}) =>
       Trip(
         id: id ?? this.id,
         dayDate: dayDate ?? this.dayDate,
@@ -1316,6 +1340,7 @@ class Trip extends DataClass implements Insertable<Trip> {
         name: name.present ? name.value : this.name,
         socStart: socStart.present ? socStart.value : this.socStart,
         socEnd: socEnd.present ? socEnd.value : this.socEnd,
+        openEnded: openEnded ?? this.openEnded,
       );
   Trip copyWithCompanion(TripsCompanion data) {
     return Trip(
@@ -1348,6 +1373,7 @@ class Trip extends DataClass implements Insertable<Trip> {
       name: data.name.present ? data.name.value : this.name,
       socStart: data.socStart.present ? data.socStart.value : this.socStart,
       socEnd: data.socEnd.present ? data.socEnd.value : this.socEnd,
+      openEnded: data.openEnded.present ? data.openEnded.value : this.openEnded,
     );
   }
 
@@ -1369,7 +1395,8 @@ class Trip extends DataClass implements Insertable<Trip> {
           ..write('peakCurrentA: $peakCurrentA, ')
           ..write('name: $name, ')
           ..write('socStart: $socStart, ')
-          ..write('socEnd: $socEnd')
+          ..write('socEnd: $socEnd, ')
+          ..write('openEnded: $openEnded')
           ..write(')'))
         .toString();
   }
@@ -1391,7 +1418,8 @@ class Trip extends DataClass implements Insertable<Trip> {
       peakCurrentA,
       name,
       socStart,
-      socEnd);
+      socEnd,
+      openEnded);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1411,7 +1439,8 @@ class Trip extends DataClass implements Insertable<Trip> {
           other.peakCurrentA == this.peakCurrentA &&
           other.name == this.name &&
           other.socStart == this.socStart &&
-          other.socEnd == this.socEnd);
+          other.socEnd == this.socEnd &&
+          other.openEnded == this.openEnded);
 }
 
 class TripsCompanion extends UpdateCompanion<Trip> {
@@ -1431,6 +1460,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
   final Value<String?> name;
   final Value<int?> socStart;
   final Value<int?> socEnd;
+  final Value<bool> openEnded;
   const TripsCompanion({
     this.id = const Value.absent(),
     this.dayDate = const Value.absent(),
@@ -1448,6 +1478,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     this.name = const Value.absent(),
     this.socStart = const Value.absent(),
     this.socEnd = const Value.absent(),
+    this.openEnded = const Value.absent(),
   });
   TripsCompanion.insert({
     this.id = const Value.absent(),
@@ -1466,6 +1497,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     this.name = const Value.absent(),
     this.socStart = const Value.absent(),
     this.socEnd = const Value.absent(),
+    this.openEnded = const Value.absent(),
   })  : dayDate = Value(dayDate),
         tripNumber = Value(tripNumber),
         startUnix = Value(startUnix),
@@ -1494,6 +1526,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     Expression<String>? name,
     Expression<int>? socStart,
     Expression<int>? socEnd,
+    Expression<bool>? openEnded,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1512,6 +1545,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       if (name != null) 'name': name,
       if (socStart != null) 'soc_start': socStart,
       if (socEnd != null) 'soc_end': socEnd,
+      if (openEnded != null) 'open_ended': openEnded,
     });
   }
 
@@ -1531,7 +1565,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       Value<double>? peakCurrentA,
       Value<String?>? name,
       Value<int?>? socStart,
-      Value<int?>? socEnd}) {
+      Value<int?>? socEnd,
+      Value<bool>? openEnded}) {
     return TripsCompanion(
       id: id ?? this.id,
       dayDate: dayDate ?? this.dayDate,
@@ -1549,6 +1584,7 @@ class TripsCompanion extends UpdateCompanion<Trip> {
       name: name ?? this.name,
       socStart: socStart ?? this.socStart,
       socEnd: socEnd ?? this.socEnd,
+      openEnded: openEnded ?? this.openEnded,
     );
   }
 
@@ -1603,6 +1639,9 @@ class TripsCompanion extends UpdateCompanion<Trip> {
     if (socEnd.present) {
       map['soc_end'] = Variable<int>(socEnd.value);
     }
+    if (openEnded.present) {
+      map['open_ended'] = Variable<bool>(openEnded.value);
+    }
     return map;
   }
 
@@ -1624,7 +1663,8 @@ class TripsCompanion extends UpdateCompanion<Trip> {
           ..write('peakCurrentA: $peakCurrentA, ')
           ..write('name: $name, ')
           ..write('socStart: $socStart, ')
-          ..write('socEnd: $socEnd')
+          ..write('socEnd: $socEnd, ')
+          ..write('openEnded: $openEnded')
           ..write(')'))
         .toString();
   }
@@ -3122,6 +3162,7 @@ typedef $$TripsTableCreateCompanionBuilder = TripsCompanion Function({
   Value<String?> name,
   Value<int?> socStart,
   Value<int?> socEnd,
+  Value<bool> openEnded,
 });
 typedef $$TripsTableUpdateCompanionBuilder = TripsCompanion Function({
   Value<int> id,
@@ -3140,6 +3181,7 @@ typedef $$TripsTableUpdateCompanionBuilder = TripsCompanion Function({
   Value<String?> name,
   Value<int?> socStart,
   Value<int?> socEnd,
+  Value<bool> openEnded,
 });
 
 final class $$TripsTableReferences
@@ -3229,6 +3271,9 @@ class $$TripsTableFilterComposer extends Composer<_$AppDatabase, $TripsTable> {
 
   ColumnFilters<int> get socEnd => $composableBuilder(
       column: $table.socEnd, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get openEnded => $composableBuilder(
+      column: $table.openEnded, builder: (column) => ColumnFilters(column));
 
   $$DaysTableFilterComposer get dayDate {
     final $$DaysTableFilterComposer composer = $composerBuilder(
@@ -3331,6 +3376,9 @@ class $$TripsTableOrderingComposer
   ColumnOrderings<int> get socEnd => $composableBuilder(
       column: $table.socEnd, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get openEnded => $composableBuilder(
+      column: $table.openEnded, builder: (column) => ColumnOrderings(column));
+
   $$DaysTableOrderingComposer get dayDate {
     final $$DaysTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -3405,6 +3453,9 @@ class $$TripsTableAnnotationComposer
 
   GeneratedColumn<int> get socEnd =>
       $composableBuilder(column: $table.socEnd, builder: (column) => column);
+
+  GeneratedColumn<bool> get openEnded =>
+      $composableBuilder(column: $table.openEnded, builder: (column) => column);
 
   $$DaysTableAnnotationComposer get dayDate {
     final $$DaysTableAnnotationComposer composer = $composerBuilder(
@@ -3487,6 +3538,7 @@ class $$TripsTableTableManager extends RootTableManager<
             Value<String?> name = const Value.absent(),
             Value<int?> socStart = const Value.absent(),
             Value<int?> socEnd = const Value.absent(),
+            Value<bool> openEnded = const Value.absent(),
           }) =>
               TripsCompanion(
             id: id,
@@ -3505,6 +3557,7 @@ class $$TripsTableTableManager extends RootTableManager<
             name: name,
             socStart: socStart,
             socEnd: socEnd,
+            openEnded: openEnded,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3523,6 +3576,7 @@ class $$TripsTableTableManager extends RootTableManager<
             Value<String?> name = const Value.absent(),
             Value<int?> socStart = const Value.absent(),
             Value<int?> socEnd = const Value.absent(),
+            Value<bool> openEnded = const Value.absent(),
           }) =>
               TripsCompanion.insert(
             id: id,
@@ -3541,6 +3595,7 @@ class $$TripsTableTableManager extends RootTableManager<
             name: name,
             socStart: socStart,
             socEnd: socEnd,
+            openEnded: openEnded,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) =>

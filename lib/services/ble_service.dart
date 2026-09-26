@@ -530,6 +530,12 @@ class BleService extends ChangeNotifier {
           .catchError((_) => 'timeout');  // TIME failure is non-fatal
       _responseWaiter = null;
 
+      // Ask about a running job before the downloads, which can take minutes.
+      // The dash keeps a job going across a power cut, so after a reconnect
+      // the End Job button has to reflect it straight away.
+      await _queryTripState();
+      notifyListeners();
+
       // 2. Request session list — retry up to 2 times if the ESP32 is slow
       String? listResponse;
       for (int attempt = 1; attempt <= 3; attempt++) {
@@ -605,19 +611,26 @@ class BleService extends ChangeNotifier {
     if (_linkUp) _setState(BleConnectionState.connected);
   }
 
+  /// Read whether the dash has a job running. Tried twice; if neither reply
+  /// arrives tripActive keeps its last known value rather than reading a lost
+  /// reply as "no job" — Start Job on a running job is harmless (the dash
+  /// keeps the job), but hiding a running job is not.
   Future<void> _queryTripState() async {
-    _resetProtocolState();
-    _responseWaiter = Completer<String>();
-    try {
-      await _sendCommand('STATUS');
-      final statusResp = await _responseWaiter!.future
-          .timeout(const Duration(seconds: 5))
-          .catchError((_) => '');
-      tripActive = statusResp.contains('trip=1');
-    } catch (_) {
-      // Connection dropped before STATUS could be sent — leave tripActive as false
-    } finally {
-      _responseWaiter = null;
+    for (int attempt = 0; attempt < 2 && _linkUp; attempt++) {
+      _resetProtocolState();
+      final waiter = _responseWaiter = Completer<String>();
+      try {
+        await _sendCommand('STATUS');
+        final statusResp = await waiter.future.timeout(const Duration(seconds: 5));
+        if (statusResp.startsWith('STATUS')) {
+          tripActive = statusResp.contains('trip=1');
+          return;
+        }
+      } catch (_) {
+        // Timed out, ERR, or the link dropped — try again while it is up.
+      } finally {
+        _responseWaiter = null;
+      }
     }
   }
 
